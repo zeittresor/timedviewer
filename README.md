@@ -17,3 +17,5 @@ optional arguments:
                      protocol file without displaying them. Only newly
                      added images will be displayed in subsequent runs.
   -version           Display version information and exit.
+
+Source: https://github.com/zeittresor/timedviewer
