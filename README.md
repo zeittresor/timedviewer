@@ -9,6 +9,7 @@ that uses resources intelligently and can be flexibly controlled using various c
 For presentations, slideshows or other applications where memory efficient image display is required.
 
 
+
 usage: timedviewer.py [-h] [-noprotocol] [-allprotocol] [-version]
 
 TimedViewer: Image display with transitions and logging.
