@@ -6,8 +6,12 @@ View pictures of a folder as long with its subfolders (with the last timestamp) 
 The "TimedViewer" Script gives u an efficient tool for displaying images with smooth transitions 
 that uses resources intelligently and can be flexibly controlled using various command line options. 
 
-For presentations, slideshows or other applications where memory efficient image display is required.
+For presentations, slideshows, image creation using Stable Diffusion in a batch, Wildlife Cameras OPs
+or other applications even where memory efficient image display is required.
 
+Newly added "-gui" Mode:
+
+![timedviewer_config](https://github.com/user-attachments/assets/b40f0720-c77a-4451-9904-81888091064b)
 
 
 usage: timedviewer.py [-h] [-noprotocol] [-allprotocol] [-version]
