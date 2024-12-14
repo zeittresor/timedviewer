@@ -14,7 +14,7 @@ Newly added "-gui" Mode:
 ![timedviewer_config](https://github.com/user-attachments/assets/b40f0720-c77a-4451-9904-81888091064b)
 
 
-usage: timedviewer.py [-h] [-noprotocol] [-allprotocol] [-version]
+usage: timedviewer.py [-commandlineoption]
 
 TimedViewer: Image display with transitions and logging.
 
