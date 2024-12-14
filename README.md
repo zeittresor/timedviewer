@@ -11,7 +11,7 @@ or other applications even where memory efficient image display is required.
 
 Newly added "-gui" Mode:
 
-![timedviewer_config](https://github.com/user-attachments/assets/1c4aa2f2-4b3f-4ee8-a203-0a195c66f2bf)
+![timedviewer_config](https://github.com/user-attachments/assets/3866fd80-3c36-4b48-b2da-d312134227cc)
 
 
 usage: timedviewer.py [-commandlineoption]
