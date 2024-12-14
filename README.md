@@ -11,7 +11,7 @@ or other applications even where memory efficient image display is required.
 
 Newly added "-gui" Mode:
 
-![timedviewer_config](https://github.com/user-attachments/assets/b40f0720-c77a-4451-9904-81888091064b)
+![timedviewer_config](https://github.com/user-attachments/assets/1c4aa2f2-4b3f-4ee8-a203-0a195c66f2bf)
 
 
 usage: timedviewer.py [-commandlineoption]
@@ -33,5 +33,7 @@ optional arguments:
   -version           Display version information and exit.
 
   -noclick           Disable left mousekey to exit the viewer
+
+  -showconsole       Show the console for use with gui mode
 
 Source: https://github.com/zeittresor/timedviewer
