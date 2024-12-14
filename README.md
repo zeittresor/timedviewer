@@ -13,7 +13,7 @@ Newly added "-gui" Mode:
 
 ![timedviewer_config](https://github.com/user-attachments/assets/3866fd80-3c36-4b48-b2da-d312134227cc)
 
-Optional Starfield Effect while waiting for new images it avail. using Gui Mode.
+Optional Starfield Effect while waiting for new images it available using Gui Mode.
 
 ![grafik](https://github.com/user-attachments/assets/574429ef-6045-4fda-b9aa-8f10b1db4db4)
 
