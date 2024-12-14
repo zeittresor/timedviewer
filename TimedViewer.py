@@ -442,7 +442,7 @@ def build_gui(noclick_forced_off):
 
     root = tk.Tk()
     root.title("TimedViewer Configuration")
-    root.geometry("600x400")
+    root.geometry("460x300")
     root.resizable(False, False)
 
     main_frame = tk.Frame(root)
