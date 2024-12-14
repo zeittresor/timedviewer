@@ -17,6 +17,8 @@ TimedViewer: Image display with transitions and logging.
 optional arguments:
 
   -h, --help         show this help message and exit
+
+  -gui               Start the tool in GUI Mode with additional options
   
   -noprotocol        Ignore the protocol file and display all images.
   
@@ -25,5 +27,7 @@ optional arguments:
                      added images will be displayed in subsequent runs.
                      
   -version           Display version information and exit.
+
+  -noclick           Disable left mousekey to exit the viewer
 
 Source: https://github.com/zeittresor/timedviewer
