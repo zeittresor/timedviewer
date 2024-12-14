@@ -6,11 +6,12 @@ import argparse
 import pygame
 import gc
 import random
+import platform
 from pygame.locals import *
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-# Configuration (default values, can be changed via GUI or command line)
+# Configuration (default values)
 CHECK_INTERVAL = 3  # Seconds between checks
 TRANSITION_DURATION = 3  # Seconds for transition
 IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.bmp', '.gif']
@@ -21,36 +22,30 @@ VERSION_INFO = (
     "Licensed under MIT License."
 )
 
-# Global variables for GUI configuration
+# Global variables
 selected_directory = os.getcwd()
 use_protocol = True
 initialize_all = False
 ignore_protocol = False
-close_viewer_on_left_click = True  # Default is True, can be disabled by -noclick or GUI
-selected_effect = 'Fade'  # Default effect
+close_viewer_on_left_click = True
+selected_effect = 'Fade'
 waiting_for_new_images_message = True
 check_interval_var = CHECK_INTERVAL
 transition_duration_var = TRANSITION_DURATION
-any_image_displayed = False  # Track if we've displayed any image so far
+any_image_displayed = False
+show_starfield = True
 
 def get_image_files(directory):
-    """
-    Returns a sorted list of image file paths in the given directory and all subdirectories.
-    """
     image_files = []
     for root, dirs, files in os.walk(directory):
         for file in files:
             if os.path.splitext(file)[1].lower() in IMAGE_EXTENSIONS:
                 full_path = os.path.abspath(os.path.join(root, file))
                 image_files.append(full_path)
-    # Sort by modification time
     image_files.sort(key=lambda x: os.path.getmtime(x))
     return image_files
 
 def load_and_scale_image(path, screen_size):
-    """
-    Loads an image and scales it to fit the screen while maintaining aspect ratio.
-    """
     try:
         image = pygame.image.load(path)
         image = image.convert_alpha()
@@ -59,17 +54,12 @@ def load_and_scale_image(path, screen_size):
         return None
     image_rect = image.get_rect()
     screen_width, screen_height = screen_size
-
-    # Calculate scaling ratio
     scale_ratio = min(screen_width / image_rect.width, screen_height / image_rect.height)
     new_size = (int(image_rect.width * scale_ratio), int(image_rect.height * scale_ratio))
     image = pygame.transform.smoothscale(image, new_size)
     return image
 
 def load_displayed_images(protocol_path):
-    """
-    Loads already displayed images from the CSV protocol file.
-    """
     displayed = set()
     if os.path.exists(protocol_path):
         try:
@@ -83,9 +73,6 @@ def load_displayed_images(protocol_path):
     return displayed
 
 def save_displayed_image(protocol_path, image_path):
-    """
-    Saves the path of a displayed image to the CSV protocol file.
-    """
     try:
         with open(protocol_path, 'a', newline='', encoding='utf-8') as csvfile:
             writer = csv.writer(csvfile)
@@ -94,9 +81,6 @@ def save_displayed_image(protocol_path, image_path):
         print(f"Error writing to protocol file: {e}")
 
 def parse_arguments():
-    """
-    Parses command-line arguments.
-    """
     parser = argparse.ArgumentParser(
         description='TimedViewer: Image display with transitions and logging.',
         formatter_class=argparse.RawTextHelpFormatter
@@ -129,16 +113,17 @@ def parse_arguments():
         action='store_true',
         help='Disable closing viewer on left mouse click.'
     )
+    parser.add_argument(
+        '-showconsole',
+        action='store_true',
+        help='Show console window even in GUI mode (Windows only).'
+    )
     return parser.parse_args()
 
 def initialize_protocol(directory, protocol_path, use_protocol, initialize_all):
-    """
-    Initializes the protocol file based on the provided options.
-    """
     displayed_images = set()
     if use_protocol:
         if initialize_all:
-            # Add all existing images to the protocol file without displaying them
             all_images = get_image_files(directory)
             try:
                 with open(protocol_path, 'w', newline='', encoding='utf-8') as csvfile:
@@ -150,21 +135,14 @@ def initialize_protocol(directory, protocol_path, use_protocol, initialize_all):
             except Exception as e:
                 print(f"Error initializing protocol file: {e}")
         else:
-            # Load already displayed images from the protocol file
             displayed_images = load_displayed_images(protocol_path)
     return displayed_images
 
 def display_version_info():
-    """
-    Displays version information and exits the program.
-    """
     print(VERSION_INFO)
     sys.exit(0)
 
 def delete_protocol(protocol_path):
-    """
-    Deletes the protocol file if exists, after confirmation.
-    """
     if os.path.exists(protocol_path):
         if messagebox.askyesno("Delete Protocol", "Are you sure you want to delete the protocol file?"):
             try:
@@ -178,9 +156,6 @@ def delete_protocol(protocol_path):
         messagebox.showinfo("Info", "No protocol file found to delete.")
 
 def generate_dissolve_blocks(screen_size, block_size=20):
-    """
-    Generate a list of blocks for the dissolve effect.
-    """
     screen_width, screen_height = screen_size
     blocks = []
     for y in range(0, screen_height, block_size):
@@ -192,14 +167,10 @@ def generate_dissolve_blocks(screen_size, block_size=20):
     return blocks
 
 def draw_transition(screen, screen_size, current_image, next_image, alpha, effect, transition_cache):
-    """
-    Draws the transition frame according to the selected effect.
-    """
     screen_width, screen_height = screen_size
     screen.fill((0, 0, 0))
 
     if effect == 'Fade':
-        # Fade
         if current_image:
             temp_current = current_image.copy()
             temp_current.set_alpha(int(255 * (1 - alpha)))
@@ -210,7 +181,6 @@ def draw_transition(screen, screen_size, current_image, next_image, alpha, effec
             screen.blit(temp_next, temp_next.get_rect(center=(screen_width//2, screen_height//2)))
 
     elif effect == 'Wipe':
-        # Wipe from left to right
         wipe_x = int(screen_width * alpha)
         if current_image:
             screen.blit(current_image, current_image.get_rect(center=(screen_width//2, screen_height//2)))
@@ -220,7 +190,6 @@ def draw_transition(screen, screen_size, current_image, next_image, alpha, effec
             screen.blit(visible_part, nx_rect)
 
     elif effect == 'Dissolve':
-        # Dissolve
         if 'blocks' not in transition_cache:
             transition_cache['blocks'] = generate_dissolve_blocks(screen_size, block_size=20)
         blocks = transition_cache['blocks']
@@ -242,7 +211,6 @@ def draw_transition(screen, screen_size, current_image, next_image, alpha, effec
                 screen.blit(block_surf, (x,y))
 
     elif effect == 'Melt':
-        # Melt effect
         if current_image and next_image:
             offset = int(alpha * 20)
             c_width = current_image.get_width()
@@ -278,7 +246,6 @@ def draw_transition(screen, screen_size, current_image, next_image, alpha, effec
             del c_pixels
             del n_pixels
         else:
-            # Fallback to fade if one image is missing
             if current_image:
                 temp_current = current_image.copy()
                 temp_current.set_alpha(int(255 * (1 - alpha)))
@@ -290,17 +257,57 @@ def draw_transition(screen, screen_size, current_image, next_image, alpha, effec
 
     pygame.display.flip()
 
+def init_starfield(num_stars, screen_size):
+    screen_width, screen_height = screen_size
+    center_x = screen_width // 2
+    center_y = screen_height // 2
+    stars = []
+    # give them a small initial radius so they're visible
+    for _ in range(num_stars):
+        angle = random.uniform(0, 2*3.14159)
+        r = random.uniform(10, 50)  # start radius so we see them
+        speed = random.uniform(0.5, 2.0)
+        x = center_x + r * (random.random() - 0.5)
+        y = center_y + r * (random.random() - 0.5)
+        # We'll store angle and speed, but update differently
+        # Actually we don't need angle since we move them outward:
+        # Just keep them from center...
+        # Let's store their center offsets to move outward
+        # We'll treat center as origin and move them outward each frame
+        stars.append([x, y, speed, center_x, center_y])
+    return stars
+
+def update_and_draw_starfield(screen, stars, screen_size):
+    screen_width, screen_height = screen_size
+    center_x = screen_width // 2
+    center_y = screen_height // 2
+    for star in stars:
+        # Move star outward from center
+        # Vector from center to star
+        dx = star[0] - star[3]
+        dy = star[1] - star[4]
+        dist = (dx*dx + dy*dy)**0.5
+        # Move outward
+        factor = star[2] / (dist+0.001)
+        star[0] += dx * factor
+        star[1] += dy * factor
+
+        if star[0] < 0 or star[0] >= screen_width or star[1] < 0 or star[1] >= screen_height:
+            # reset star
+            r = random.uniform(10, 50)
+            star[0] = center_x + r*(random.random()-0.5)
+            star[1] = center_y + r*(random.random()-0.5)
+            star[2] = random.uniform(0.5, 2.0)
+
+        screen.set_at((int(star[0]), int(star[1])), (255, 255, 255))
+
 def run_viewer():
-    """
-    Runs the viewer in fullscreen mode with the selected settings.
-    """
     global selected_directory, use_protocol, initialize_all, ignore_protocol
     global close_viewer_on_left_click, selected_effect, check_interval_var
-    global transition_duration_var, waiting_for_new_images_message, any_image_displayed
+    global transition_duration_var, waiting_for_new_images_message, any_image_displayed, show_starfield
 
     protocol_path = os.path.join(selected_directory, PROTOCOL_FILE)
     actual_use_protocol = not ignore_protocol
-
     displayed_images = initialize_protocol(selected_directory, protocol_path, actual_use_protocol, initialize_all)
 
     pygame.init()
@@ -314,6 +321,10 @@ def run_viewer():
     next_image = None
     transition_start_time = None
     transition_cache = {}
+
+    stars = None
+    if show_starfield:
+        stars = init_starfield(200, screen_size)
 
     running = True
     last_check_time = 0
@@ -331,7 +342,6 @@ def run_viewer():
                 if close_viewer_on_left_click and event.button == 1:
                     running = False
 
-        # Check for new images
         if current_time - last_check_time >= check_interval_var:
             last_check_time = current_time
             image_files = get_image_files(selected_directory)
@@ -350,13 +360,11 @@ def run_viewer():
                         break
 
         if transition_start_time:
-            # Transition in progress
             elapsed = current_time - transition_start_time
             if elapsed < transition_duration_var:
                 alpha = elapsed / transition_duration_var
                 draw_transition(screen, screen_size, current_image, next_image, alpha, selected_effect, transition_cache)
             else:
-                # Transition complete
                 draw_transition(screen, screen_size, current_image, next_image, 1.0, selected_effect, transition_cache)
                 if current_image:
                     del current_image
@@ -365,19 +373,18 @@ def run_viewer():
                 current_image = next_image
                 next_image = None
                 transition_start_time = None
-                any_image_displayed = True  # We have displayed at least one image now
+                any_image_displayed = True
         else:
-            # No transition in progress
             if current_image:
                 screen.fill((0, 0, 0))
                 screen.blit(current_image, current_image.get_rect(center=(screen_size[0]//2, screen_size[1]//2)))
                 pygame.display.flip()
             else:
-                # No current image. Check if we should show waiting message.
-                # If we haven't displayed any image yet or have used allprotocol with no new images, show waiting message.
-                # Also if no images at all are available, show waiting message.
+                # No current image displayed
                 if waiting_for_new_images_message and not any_image_displayed:
                     screen.fill((0,0,0))
+                    if show_starfield and stars:
+                        update_and_draw_starfield(screen, stars, screen_size)
                     font = pygame.font.SysFont(None, 50)
                     text = font.render("Waiting for new images...", True, (255,255,255))
                     rect = text.get_rect(center=(screen_size[0]//2, screen_size[1]//2))
@@ -393,36 +400,28 @@ def run_viewer():
     pygame.quit()
 
 def start_viewer_from_gui(root):
-    """
-    Closes the GUI and starts the viewer with the selected settings.
-    After the viewer ends, shows the GUI again.
-    """
-    root.withdraw()  # Hide GUI
+    root.withdraw()
     run_viewer()
     root.deiconify()
 
 def select_directory():
-    """
-    Opens a folder selection dialog to choose the directory to watch.
-    """
     global selected_directory
     dir_path = filedialog.askdirectory(initialdir=selected_directory)
     if dir_path:
         selected_directory = dir_path
 
 def create_tooltip(widget, text):
-    """
-    Create a tooltip that appears on mouseover.
-    """
     tipwindow = None
 
     def show_tip(event):
         nonlocal tipwindow
         if tipwindow or not text:
             return
-        x, y, cx, cy = widget.bbox("insert")
-        x += widget.winfo_rootx() + 25
-        y += widget.winfo_rooty() + 25
+        x, y, cx, cy = (0,0,0,0)
+        if widget.winfo_class() == 'Entry':
+            x, y, cx, cy = widget.bbox("insert")
+        x += widget.winfo_rootx() + 20
+        y += widget.winfo_rooty() + 20
         tipwindow = tw = tk.Toplevel(widget)
         tw.wm_overrideredirect(True)
         tw.wm_geometry(f"+{x}+{y}")
@@ -439,93 +438,83 @@ def create_tooltip(widget, text):
     widget.bind("<Leave>", hide_tip)
 
 def build_gui(noclick_forced_off):
-    """
-    Builds and runs the GUI to configure settings before starting the viewer.
-    """
-    global selected_directory, use_protocol, initialize_all, ignore_protocol
-    global close_viewer_on_left_click, selected_effect, check_interval_var
-    global transition_duration_var, waiting_for_new_images_message
+    global selected_directory, ignore_protocol, initialize_all, close_viewer_on_left_click, selected_effect, check_interval_var, transition_duration_var, show_starfield
 
     root = tk.Tk()
     root.title("TimedViewer Configuration")
-    root.geometry("800x600")
+    root.geometry("600x400")
+    root.resizable(False, False)
 
-    # Create main frames: left_frame and right_frame side by side, bottom_frame for start
     main_frame = tk.Frame(root)
     main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
     left_frame = tk.Frame(main_frame)
     right_frame = tk.Frame(main_frame)
-    left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
-    right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+    left_frame.grid(row=0, column=0, sticky="nw")
+    right_frame.grid(row=0, column=1, sticky="ne", padx=20)
+    bottom_frame = tk.Frame(root)
+    bottom_frame.pack(side=tk.BOTTOM, pady=5)
 
-    # Left frame widgets: Directory, check interval, transition duration
-    # Directory
+    # Left frame
     dir_label = tk.Label(left_frame, text="Select directory:")
-    dir_label.pack(anchor='w', pady=5)
+    dir_label.grid(row=0, column=0, sticky="w", pady=(0,5))
     dir_button = tk.Button(left_frame, text="Browse...", command=select_directory)
-    dir_button.pack(anchor='w', pady=5)
+    dir_button.grid(row=1, column=0, sticky="w", pady=(0,5))
     selected_dir_var = tk.StringVar(value=selected_directory)
-
     def update_selected_dir():
         selected_dir_var.set(selected_directory)
         root.after(200, update_selected_dir)
     update_selected_dir()
+    selected_dir_label = tk.Label(left_frame, textvariable=selected_dir_var, wraplength=250)
+    selected_dir_label.grid(row=2, column=0, sticky="w", pady=(0,15))
 
-    selected_dir_label = tk.Label(left_frame, textvariable=selected_dir_var, wraplength=300)
-    selected_dir_label.pack(anchor='w', pady=5)
-
-    # Check interval
     interval_label = tk.Label(left_frame, text="Check Interval (sec):")
-    interval_label.pack(anchor='w', pady=(15,5))
-    interval_entry = tk.Entry(left_frame)
+    interval_label.grid(row=3, column=0, sticky="w", pady=(0,5))
+    interval_entry = tk.Entry(left_frame, width=10)
     interval_entry.insert(0, str(check_interval_var))
-    interval_entry.pack(anchor='w', pady=5)
+    interval_entry.grid(row=4, column=0, sticky="w", pady=(0,15))
 
-    # Transition duration
     transition_label = tk.Label(left_frame, text="Transition Duration (sec):")
-    transition_label.pack(anchor='w', pady=(15,5))
-    transition_entry = tk.Entry(left_frame)
+    transition_label.grid(row=5, column=0, sticky="w", pady=(0,5))
+    transition_entry = tk.Entry(left_frame, width=10)
     transition_entry.insert(0, str(transition_duration_var))
-    transition_entry.pack(anchor='w', pady=5)
+    transition_entry.grid(row=6, column=0, sticky="w")
 
-    # Right frame widgets: Effect dropdown, protocol checkboxes, close click option, delete protocol
+    # Right frame
     effect_label = tk.Label(right_frame, text="Transition Effect:")
-    effect_label.pack(anchor='w', pady=5)
+    effect_label.grid(row=0, column=0, sticky="w", pady=(0,5))
     effect_var = tk.StringVar(value=selected_effect)
     effect_options = ["Fade", "Wipe", "Dissolve", "Melt"]
-    effect_dropdown = ttk.Combobox(right_frame, textvariable=effect_var, values=effect_options, state='readonly')
+    effect_dropdown = ttk.Combobox(right_frame, textvariable=effect_var, values=effect_options, state='readonly', width=15)
     effect_dropdown.current(effect_options.index(selected_effect))
-    effect_dropdown.pack(anchor='w', pady=5)
+    effect_dropdown.grid(row=1, column=0, sticky="w", pady=(0,10))
 
-    # Protocol checkboxes
     noprotocol_var = tk.BooleanVar(value=ignore_protocol)
     noprotocol_check = tk.Checkbutton(right_frame, text="Ignore protocol", variable=noprotocol_var)
-    noprotocol_check.pack(anchor='w', pady=5)
+    noprotocol_check.grid(row=2, column=0, sticky="w", pady=(0,5))
 
     allprotocol_var = tk.BooleanVar(value=initialize_all)
     allprotocol_check = tk.Checkbutton(right_frame, text="Use allprotocol", variable=allprotocol_var)
-    allprotocol_check.pack(anchor='w', pady=5)
+    allprotocol_check.grid(row=3, column=0, sticky="w", pady=(0,5))
 
-    # Close viewer with left mouse click
     closeleft_var = tk.BooleanVar(value=close_viewer_on_left_click and not noclick_forced_off)
     closeleft_check = tk.Checkbutton(right_frame, text="Close viewer with left click", variable=closeleft_var)
-    closeleft_check.pack(anchor='w', pady=5)
+    closeleft_check.grid(row=4, column=0, sticky="w", pady=(0,5))
     if noclick_forced_off:
         closeleft_check.config(state=tk.DISABLED)
 
-    # Delete protocol button
+    starfield_var = tk.BooleanVar(value=show_starfield)
+    starfield_check = tk.Checkbutton(right_frame, text="Starfield background", variable=starfield_var)
+    starfield_check.grid(row=5, column=0, sticky="w", pady=(0,15))
+
     def on_delete_protocol():
         delete_protocol(os.path.join(selected_directory, PROTOCOL_FILE))
     delete_button = tk.Button(right_frame, text="Delete Protocol", command=on_delete_protocol)
-    delete_button.pack(anchor='w', pady=(20,5))
+    delete_button.grid(row=6, column=0, sticky="w", pady=(0,5))
 
-    # Start button at the bottom center
-    bottom_frame = tk.Frame(root)
-    bottom_frame.pack(fill=tk.X, pady=10)
     def on_start():
         global selected_directory, ignore_protocol, initialize_all, close_viewer_on_left_click, selected_effect
-        global check_interval_var, transition_duration_var
+        global check_interval_var, transition_duration_var, show_starfield
 
         try:
             ci = float(interval_entry.get())
@@ -546,28 +535,36 @@ def build_gui(noclick_forced_off):
         else:
             close_viewer_on_left_click = closeleft_var.get()
         selected_effect = effect_var.get()
+        show_starfield = starfield_var.get()
 
         start_viewer_from_gui(root)
 
-    start_button = tk.Button(bottom_frame, text="Start", command=on_start)
+    start_button = tk.Button(bottom_frame, text="Start", command=on_start, font=("Arial", 14, "bold"))
     start_button.pack()
 
     # Tooltips
-    create_tooltip(dir_button, "Select the directory to watch for new images.")
-    create_tooltip(selected_dir_label, "Current directory being watched.")
-    create_tooltip(interval_label, "How often (in seconds) to check for new images.")
-    create_tooltip(interval_entry, "Enter a number for how frequently new images are checked.")
-    create_tooltip(transition_label, "How long (in seconds) each transition takes.")
-    create_tooltip(transition_entry, "Enter a number for the duration of each transition.")
-    create_tooltip(effect_label, "Select the effect used to transition between images.")
-    create_tooltip(effect_dropdown, "Choose the visual transition effect between images.")
-    create_tooltip(noprotocol_check, "If checked, ignore the protocol and show all images again.")
-    create_tooltip(allprotocol_check, "If checked, add all existing images to protocol first, so only newly added ones show.")
-    create_tooltip(closeleft_check, "If checked, left-clicking in fullscreen closes the viewer.")
-    create_tooltip(delete_button, "Delete the displayed_images.csv protocol file after confirmation.")
-    create_tooltip(start_button, "Start the fullscreen viewer with the chosen settings.")
+    create_tooltip(dir_label, "Specify the directory where images will be monitored.")
+    create_tooltip(dir_button, "Open a dialog to select the directory to watch.")
+    create_tooltip(selected_dir_label, "The currently selected directory.")
+    create_tooltip(interval_label, "How frequently the directory is checked for new images (in seconds).")
+    create_tooltip(interval_entry, "Enter a numeric value for the check interval.")
+    create_tooltip(transition_label, "How long each transition lasts (in seconds).")
+    create_tooltip(transition_entry, "Enter a numeric value for the transition duration.")
+    create_tooltip(effect_label, "Select the visual transition effect between images.")
+    create_tooltip(effect_dropdown, "Choose from Fade, Wipe, Dissolve, or Melt effects.")
+    create_tooltip(noprotocol_check, "If checked, previously displayed images are not skipped.")
+    create_tooltip(allprotocol_check, "If checked, mark all current images as displayed, so only new ones show later.")
+    create_tooltip(closeleft_check, "If enabled, you can close the viewer by left-clicking inside the fullscreen.")
+    create_tooltip(starfield_check, "If enabled, a starfield background is shown while waiting for images.")
+    create_tooltip(delete_button, "Delete the protocol file (displayed_images.csv) after confirmation.")
+    create_tooltip(start_button, "Start the fullscreen viewer with these settings.")
 
     return root
+
+def hide_console_window():
+    if platform.system() == "Windows":
+        import ctypes
+        ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
 
 def main():
     args = parse_arguments()
@@ -575,25 +572,23 @@ def main():
     if args.version:
         display_version_info()
 
-    # Handle -noclick
     noclick_forced_off = False
     if args.noclick:
         noclick_forced_off = True
 
-    # If GUI option is given
+    if args.gui and not args.showconsole and platform.system() == "Windows":
+        hide_console_window()
+
     if args.gui:
-        # We'll show GUI but we also consider noclick_forced_off
         gui_root = build_gui(noclick_forced_off)
         gui_root.mainloop()
     else:
-        # No GUI, set variables from args
-        global use_protocol, initialize_all, ignore_protocol, check_interval_var, transition_duration_var, close_viewer_on_left_click
+        global use_protocol, initialize_all, ignore_protocol, check_interval_var, transition_duration_var, close_viewer_on_left_click, show_starfield
         use_protocol = not args.noprotocol
         initialize_all = args.allprotocol
         ignore_protocol = args.noprotocol
         if noclick_forced_off:
             close_viewer_on_left_click = False
-
         run_viewer()
 
 if __name__ == "__main__":
