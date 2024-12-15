@@ -17,7 +17,7 @@ TRANSITION_DURATION = 3  # Seconds for transition
 IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.bmp', '.gif']
 PROTOCOL_FILE = 'displayed_images.csv'
 VERSION_INFO = (
-    "TimedViewer v2.1.1\n"
+    "TimedViewer v1.0\n"
     "An open-source project from https://github.com/zeittresor/timedviewer\n"
     "Licensed under MIT License."
 )
@@ -166,11 +166,22 @@ def generate_dissolve_blocks(screen_size, block_size=20):
     random.shuffle(blocks)
     return blocks
 
+def choose_effect(selected):
+    """
+    Chooses the actual effect. If selected is 'Random', pick a random effect from the list.
+    """
+    effects = ["Fade", "Dissolve", "Paint", "Roll"]
+    if selected == "Random":
+        return random.choice(effects)
+    else:
+        return selected
+
 def draw_transition(screen, screen_size, current_image, next_image, alpha, effect, transition_cache):
     screen_width, screen_height = screen_size
     screen.fill((0, 0, 0))
 
     if effect == 'Fade':
+        # Fade effect
         if current_image:
             temp_current = current_image.copy()
             temp_current.set_alpha(int(255 * (1 - alpha)))
@@ -180,16 +191,8 @@ def draw_transition(screen, screen_size, current_image, next_image, alpha, effec
             temp_next.set_alpha(int(255 * alpha))
             screen.blit(temp_next, temp_next.get_rect(center=(screen_width//2, screen_height//2)))
 
-    elif effect == 'Wipe':
-        wipe_x = int(screen_width * alpha)
-        if current_image:
-            screen.blit(current_image, current_image.get_rect(center=(screen_width//2, screen_height//2)))
-        if next_image:
-            visible_part = next_image.subsurface((0,0,wipe_x,next_image.get_height()))
-            nx_rect = visible_part.get_rect(center=(screen_width//2, screen_height//2))
-            screen.blit(visible_part, nx_rect)
-
     elif effect == 'Dissolve':
+        # Dissolve effect
         if 'blocks' not in transition_cache:
             transition_cache['blocks'] = generate_dissolve_blocks(screen_size, block_size=20)
         blocks = transition_cache['blocks']
@@ -202,7 +205,6 @@ def draw_transition(screen, screen_size, current_image, next_image, alpha, effec
         if next_image:
             for i in range(revealed_count):
                 x, y, w, h = blocks[i]
-                nx_rect = next_image.get_rect(center=(screen_width//2, screen_height//2))
                 sx = x - (screen_width - next_image.get_width())//2
                 sy = y - (screen_height - next_image.get_height())//2
                 if sx < 0 or sy < 0 or sx+w > next_image.get_width() or sy+h > next_image.get_height():
@@ -210,50 +212,48 @@ def draw_transition(screen, screen_size, current_image, next_image, alpha, effec
                 block_surf = next_image.subsurface((sx, sy, w, h))
                 screen.blit(block_surf, (x,y))
 
-    elif effect == 'Melt':
-        if current_image and next_image:
-            offset = int(alpha * 20)
-            c_width = current_image.get_width()
-            c_height = current_image.get_height()
-            n_width = next_image.get_width()
-            n_height = next_image.get_height()
+    elif effect == 'Paint':
+        # "Paint" effect: Reveal next_image diagonally from top-left
+        # We'll reveal all pixels where x+y < diagonal_line, diagonal_line = alpha*(width+height)
+        diagonal_line = alpha*(screen_width+screen_height)
+        if current_image:
+            temp_current = current_image.copy()
+            temp_current.set_alpha(int(255*(1 - alpha)))
+            screen.blit(temp_current, temp_current.get_rect(center=(screen_width//2, screen_height//2)))
 
-            c_x_off = (screen_width - c_width)//2
-            c_y_off = (screen_height - c_height)//2
-            n_x_off = (screen_width - n_width)//2
-            n_y_off = (screen_height - n_height)//2
+        if next_image:
+            # We'll reveal next_image line by line
+            nx_rect = next_image.get_rect(center=(screen_width//2, screen_height//2))
+            nx_off_x = (screen_width - next_image.get_width())//2
+            nx_off_y = (screen_height - next_image.get_height())//2
 
-            c_pixels = pygame.PixelArray(current_image)
-            n_pixels = pygame.PixelArray(next_image)
+            # For each line y, we calculate x_cut = diagonal_line - y
+            # Reveal all x from 0 to x_cut
+            for y in range(next_image.get_height()):
+                x_cut = int(diagonal_line - (y+nx_off_y))
+                if x_cut > 0:
+                    # Reveal min(x_cut, next_image_width)
+                    reveal_width = min(x_cut, next_image.get_width())
+                    if reveal_width > 0:
+                        line_surf = next_image.subsurface((0, y, reveal_width, 1))
+                        screen.blit(line_surf, (nx_off_x, nx_off_y + y))
 
-            old_line_alpha = int(255*(1 - alpha))
-            new_line_alpha = int(255*alpha)
-            max_height = max(c_height, n_height)
+    elif effect == 'Roll':
+        # "Roll" effect: next_image rolls down from above
+        # alpha=0: next_image is off-screen above
+        # alpha=1: next_image in correct position
+        roll_offset = int((1-alpha)*screen_height)
+        if current_image:
+            temp_current = current_image.copy()
+            temp_current.set_alpha(int(255*(1 - alpha)))
+            screen.blit(temp_current, temp_current.get_rect(center=(screen_width//2, screen_height//2)))
 
-            for y in range(max_height):
-                if 0 <= y < c_height:
-                    old_line_surf = pygame.Surface((c_width, 1), pygame.SRCALPHA)
-                    pygame.surfarray.pixels3d(old_line_surf)[:] = c_pixels[:,y:y+1,:]
-                    old_line_surf.set_alpha(old_line_alpha)
-                    screen.blit(old_line_surf, (c_x_off, c_y_off + y + offset))
-
-                if 0 <= y < n_height:
-                    new_line_surf = pygame.Surface((n_width, 1), pygame.SRCALPHA)
-                    pygame.surfarray.pixels3d(new_line_surf)[:] = n_pixels[:,y:y+1,:]
-                    new_line_surf.set_alpha(new_line_alpha)
-                    screen.blit(new_line_surf, (n_x_off, n_y_off + y))
-
-            del c_pixels
-            del n_pixels
-        else:
-            if current_image:
-                temp_current = current_image.copy()
-                temp_current.set_alpha(int(255 * (1 - alpha)))
-                screen.blit(temp_current, temp_current.get_rect(center=(screen_width//2, screen_height//2)))
-            if next_image:
-                temp_next = next_image.copy()
-                temp_next.set_alpha(int(255 * alpha))
-                screen.blit(temp_next, temp_next.get_rect(center=(screen_width//2, screen_height//2)))
+        if next_image:
+            temp_next = next_image.copy()
+            temp_next.set_alpha(int(255*alpha))
+            # Place next_image starting above and rolling down
+            nx_rect = temp_next.get_rect(center=(screen_width//2, (screen_height//2) - roll_offset))
+            screen.blit(temp_next, nx_rect)
 
     pygame.display.flip()
 
@@ -262,18 +262,11 @@ def init_starfield(num_stars, screen_size):
     center_x = screen_width // 2
     center_y = screen_height // 2
     stars = []
-    # give them a small initial radius so they're visible
     for _ in range(num_stars):
-        angle = random.uniform(0, 2*3.14159)
-        r = random.uniform(10, 50)  # start radius so we see them
+        r = random.uniform(10, 50)
         speed = random.uniform(0.5, 2.0)
         x = center_x + r * (random.random() - 0.5)
         y = center_y + r * (random.random() - 0.5)
-        # We'll store angle and speed, but update differently
-        # Actually we don't need angle since we move them outward:
-        # Just keep them from center...
-        # Let's store their center offsets to move outward
-        # We'll treat center as origin and move them outward each frame
         stars.append([x, y, speed, center_x, center_y])
     return stars
 
@@ -282,18 +275,14 @@ def update_and_draw_starfield(screen, stars, screen_size):
     center_x = screen_width // 2
     center_y = screen_height // 2
     for star in stars:
-        # Move star outward from center
-        # Vector from center to star
         dx = star[0] - star[3]
         dy = star[1] - star[4]
         dist = (dx*dx + dy*dy)**0.5
-        # Move outward
         factor = star[2] / (dist+0.001)
         star[0] += dx * factor
         star[1] += dy * factor
 
         if star[0] < 0 or star[0] >= screen_width or star[1] < 0 or star[1] >= screen_height:
-            # reset star
             r = random.uniform(10, 50)
             star[0] = center_x + r*(random.random()-0.5)
             star[1] = center_y + r*(random.random()-0.5)
@@ -305,6 +294,9 @@ def run_viewer():
     global selected_directory, use_protocol, initialize_all, ignore_protocol
     global close_viewer_on_left_click, selected_effect, check_interval_var
     global transition_duration_var, waiting_for_new_images_message, any_image_displayed, show_starfield
+
+    # Reset any_image_displayed when starting viewer again
+    any_image_displayed = False
 
     protocol_path = os.path.join(selected_directory, PROTOCOL_FILE)
     actual_use_protocol = not ignore_protocol
@@ -329,6 +321,8 @@ def run_viewer():
     running = True
     last_check_time = 0
 
+    chosen_effect = selected_effect
+
     while running:
         current_time = time.time()
 
@@ -351,11 +345,14 @@ def run_viewer():
                     loaded_image = load_and_scale_image(image_file, screen_size)
                     if loaded_image:
                         next_image = loaded_image
+                        # Choose effect if random
+                        chosen_effect = choose_effect(selected_effect)
                         if actual_use_protocol:
                             save_displayed_image(protocol_path, image_file)
                         displayed_images.add(image_file)
                         transition_start_time = current_time
                         transition_cache.clear()
+                        transition_cache['effect'] = chosen_effect
                         new_image_found = True
                         break
 
@@ -363,9 +360,11 @@ def run_viewer():
             elapsed = current_time - transition_start_time
             if elapsed < transition_duration_var:
                 alpha = elapsed / transition_duration_var
-                draw_transition(screen, screen_size, current_image, next_image, alpha, selected_effect, transition_cache)
+                eff = transition_cache.get('effect', chosen_effect)
+                draw_transition(screen, screen_size, current_image, next_image, alpha, eff, transition_cache)
             else:
-                draw_transition(screen, screen_size, current_image, next_image, 1.0, selected_effect, transition_cache)
+                eff = transition_cache.get('effect', chosen_effect)
+                draw_transition(screen, screen_size, current_image, next_image, 1.0, eff, transition_cache)
                 if current_image:
                     del current_image
                     gc.collect()
@@ -484,9 +483,13 @@ def build_gui(noclick_forced_off):
     effect_label = tk.Label(right_frame, text="Transition Effect:")
     effect_label.grid(row=0, column=0, sticky="w", pady=(0,5))
     effect_var = tk.StringVar(value=selected_effect)
-    effect_options = ["Fade", "Wipe", "Dissolve", "Melt"]
+    # Add "Random" option
+    effect_options = ["Fade", "Dissolve", "Paint", "Roll", "Random"]
     effect_dropdown = ttk.Combobox(right_frame, textvariable=effect_var, values=effect_options, state='readonly', width=15)
-    effect_dropdown.current(effect_options.index(selected_effect))
+    if selected_effect in effect_options:
+        effect_dropdown.current(effect_options.index(selected_effect))
+    else:
+        effect_dropdown.current(0)
     effect_dropdown.grid(row=1, column=0, sticky="w", pady=(0,10))
 
     noprotocol_var = tk.BooleanVar(value=ignore_protocol)
@@ -551,7 +554,7 @@ def build_gui(noclick_forced_off):
     create_tooltip(transition_label, "How long each transition lasts (in seconds).")
     create_tooltip(transition_entry, "Enter a numeric value for the transition duration.")
     create_tooltip(effect_label, "Select the visual transition effect between images.")
-    create_tooltip(effect_dropdown, "Choose from Fade, Wipe, Dissolve, or Melt effects.")
+    create_tooltip(effect_dropdown, "Choose from Fade, Dissolve, Paint, Roll or Random.")
     create_tooltip(noprotocol_check, "If checked, previously displayed images are not skipped.")
     create_tooltip(allprotocol_check, "If checked, mark all current images as displayed, so only new ones show later.")
     create_tooltip(closeleft_check, "If enabled, you can close the viewer by left-clicking inside the fullscreen.")
