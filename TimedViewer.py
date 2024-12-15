@@ -17,7 +17,7 @@ TRANSITION_DURATION = 3  # Seconds for transition
 IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.bmp', '.gif']
 PROTOCOL_FILE = 'displayed_images.csv'
 VERSION_INFO = (
-    "TimedViewer v1.0\n"
+    "TimedViewer v2.1.2\n"
     "An open-source project from https://github.com/zeittresor/timedviewer\n"
     "Licensed under MIT License."
 )
