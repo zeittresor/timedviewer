@@ -41,3 +41,7 @@ optional arguments:
   -showconsole       Show the console for use with gui mode
 
 Source: https://github.com/zeittresor/timedviewer
+
+Requirements: Make sure you have installed the additional python library
+"PyGame" using "pip install pygame". Start it using "py timedviewer.py" using console
+or as a shortcut with parameter -gui for the graphical interface mode.
