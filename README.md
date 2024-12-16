@@ -2,6 +2,8 @@
 
 View pictures of a folder as long with its subfolders (with the last timestamp) in fullscreen mode.
 
+The Script is looking every x seconds into the choosen folder (and the subfolders of it), if a new
+image is available there the current viewed image swaps to the new one.
 
 The "TimedViewer" Script gives u an efficient tool for displaying images with smooth transitions 
 that uses resources intelligently and can be flexibly controlled using various command line options. 
