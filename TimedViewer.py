@@ -17,7 +17,7 @@ TRANSITION_DURATION = 3  # Seconds for transition
 IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.bmp', '.gif']
 PROTOCOL_FILE = 'displayed_images.csv'
 VERSION_INFO = (
-    "TimedViewer v2.1.2\n"
+    "TimedViewer v2.1.3\n"
     "An open-source project from https://github.com/zeittresor/timedviewer\n"
     "Licensed under MIT License."
 )
@@ -34,6 +34,8 @@ check_interval_var = CHECK_INTERVAL
 transition_duration_var = TRANSITION_DURATION
 any_image_displayed = False
 show_starfield = True
+
+VIEWPATH_FILE = "viewpath.txt"
 
 def get_image_files(directory):
     image_files = []
@@ -168,7 +170,7 @@ def generate_dissolve_blocks(screen_size, block_size=20):
 
 def choose_effect(selected):
     """
-    Chooses the actual effect. If selected is 'Random', pick a random effect from the list.
+    Chooses the actual effect. If selected is 'Random', pick a random effect.
     """
     effects = ["Fade", "Dissolve", "Paint", "Roll"]
     if selected == "Random":
@@ -181,7 +183,7 @@ def draw_transition(screen, screen_size, current_image, next_image, alpha, effec
     screen.fill((0, 0, 0))
 
     if effect == 'Fade':
-        # Fade effect
+        # Fade
         if current_image:
             temp_current = current_image.copy()
             temp_current.set_alpha(int(255 * (1 - alpha)))
@@ -192,7 +194,7 @@ def draw_transition(screen, screen_size, current_image, next_image, alpha, effec
             screen.blit(temp_next, temp_next.get_rect(center=(screen_width//2, screen_height//2)))
 
     elif effect == 'Dissolve':
-        # Dissolve effect
+        # Dissolve
         if 'blocks' not in transition_cache:
             transition_cache['blocks'] = generate_dissolve_blocks(screen_size, block_size=20)
         blocks = transition_cache['blocks']
@@ -213,8 +215,7 @@ def draw_transition(screen, screen_size, current_image, next_image, alpha, effec
                 screen.blit(block_surf, (x,y))
 
     elif effect == 'Paint':
-        # "Paint" effect: Reveal next_image diagonally from top-left
-        # We'll reveal all pixels where x+y < diagonal_line, diagonal_line = alpha*(width+height)
+        # "Paint" effect
         diagonal_line = alpha*(screen_width+screen_height)
         if current_image:
             temp_current = current_image.copy()
@@ -222,26 +223,20 @@ def draw_transition(screen, screen_size, current_image, next_image, alpha, effec
             screen.blit(temp_current, temp_current.get_rect(center=(screen_width//2, screen_height//2)))
 
         if next_image:
-            # We'll reveal next_image line by line
             nx_rect = next_image.get_rect(center=(screen_width//2, screen_height//2))
             nx_off_x = (screen_width - next_image.get_width())//2
             nx_off_y = (screen_height - next_image.get_height())//2
 
-            # For each line y, we calculate x_cut = diagonal_line - y
-            # Reveal all x from 0 to x_cut
             for y in range(next_image.get_height()):
                 x_cut = int(diagonal_line - (y+nx_off_y))
                 if x_cut > 0:
-                    # Reveal min(x_cut, next_image_width)
                     reveal_width = min(x_cut, next_image.get_width())
                     if reveal_width > 0:
                         line_surf = next_image.subsurface((0, y, reveal_width, 1))
                         screen.blit(line_surf, (nx_off_x, nx_off_y + y))
 
     elif effect == 'Roll':
-        # "Roll" effect: next_image rolls down from above
-        # alpha=0: next_image is off-screen above
-        # alpha=1: next_image in correct position
+        # "Roll" effect
         roll_offset = int((1-alpha)*screen_height)
         if current_image:
             temp_current = current_image.copy()
@@ -251,7 +246,6 @@ def draw_transition(screen, screen_size, current_image, next_image, alpha, effec
         if next_image:
             temp_next = next_image.copy()
             temp_next.set_alpha(int(255*alpha))
-            # Place next_image starting above and rolling down
             nx_rect = temp_next.get_rect(center=(screen_width//2, (screen_height//2) - roll_offset))
             screen.blit(temp_next, nx_rect)
 
@@ -345,7 +339,6 @@ def run_viewer():
                     loaded_image = load_and_scale_image(image_file, screen_size)
                     if loaded_image:
                         next_image = loaded_image
-                        # Choose effect if random
                         chosen_effect = choose_effect(selected_effect)
                         if actual_use_protocol:
                             save_displayed_image(protocol_path, image_file)
@@ -408,6 +401,9 @@ def select_directory():
     dir_path = filedialog.askdirectory(initialdir=selected_directory)
     if dir_path:
         selected_directory = dir_path
+        # Update viewpath.txt with new directory
+        with open(VIEWPATH_FILE, 'w', encoding='utf-8') as f:
+            f.write(selected_directory)
 
 def create_tooltip(widget, text):
     tipwindow = None
@@ -454,7 +450,6 @@ def build_gui(noclick_forced_off):
     bottom_frame = tk.Frame(root)
     bottom_frame.pack(side=tk.BOTTOM, pady=5)
 
-    # Left frame
     dir_label = tk.Label(left_frame, text="Select directory:")
     dir_label.grid(row=0, column=0, sticky="w", pady=(0,5))
     dir_button = tk.Button(left_frame, text="Browse...", command=select_directory)
@@ -479,17 +474,14 @@ def build_gui(noclick_forced_off):
     transition_entry.insert(0, str(transition_duration_var))
     transition_entry.grid(row=6, column=0, sticky="w")
 
-    # Right frame
     effect_label = tk.Label(right_frame, text="Transition Effect:")
     effect_label.grid(row=0, column=0, sticky="w", pady=(0,5))
     effect_var = tk.StringVar(value=selected_effect)
-    # Add "Random" option
     effect_options = ["Fade", "Dissolve", "Paint", "Roll", "Random"]
+    if selected_effect not in effect_options:
+        selected_effect = "Fade"
     effect_dropdown = ttk.Combobox(right_frame, textvariable=effect_var, values=effect_options, state='readonly', width=15)
-    if selected_effect in effect_options:
-        effect_dropdown.current(effect_options.index(selected_effect))
-    else:
-        effect_dropdown.current(0)
+    effect_dropdown.set(selected_effect)
     effect_dropdown.grid(row=1, column=0, sticky="w", pady=(0,10))
 
     noprotocol_var = tk.BooleanVar(value=ignore_protocol)
@@ -540,6 +532,10 @@ def build_gui(noclick_forced_off):
         selected_effect = effect_var.get()
         show_starfield = starfield_var.get()
 
+        # Speichere den aktuellen selected_directory Pfad in die viewpath.txt
+        with open(VIEWPATH_FILE, 'w', encoding='utf-8') as f:
+            f.write(selected_directory)
+
         start_viewer_from_gui(root)
 
     start_button = tk.Button(bottom_frame, text="Start", command=on_start, font=("Arial", 14, "bold"))
@@ -575,6 +571,30 @@ def main():
     if args.version:
         display_version_info()
 
+    # Check viewpath.txt
+    global selected_directory
+    if os.path.exists(VIEWPATH_FILE):
+        # read first line
+        try:
+            with open(VIEWPATH_FILE, 'r', encoding='utf-8') as f:
+                line = f.readline().strip()
+                if line and os.path.isdir(line):
+                    selected_directory = line
+                else:
+                    # Not valid, rewrite with current
+                    with open(VIEWPATH_FILE, 'w', encoding='utf-8') as fw:
+                        fw.write(os.getcwd())
+                    selected_directory = os.getcwd()
+        except:
+            # if any error occurs, fallback to current and rewrite
+            selected_directory = os.getcwd()
+            with open(VIEWPATH_FILE, 'w', encoding='utf-8') as fw:
+                fw.write(selected_directory)
+    else:
+        # file does not exist, create and write current directory
+        with open(VIEWPATH_FILE, 'w', encoding='utf-8') as f:
+            f.write(selected_directory)
+
     noclick_forced_off = False
     if args.noclick:
         noclick_forced_off = True
@@ -582,14 +602,15 @@ def main():
     if args.gui and not args.showconsole and platform.system() == "Windows":
         hide_console_window()
 
+    global use_protocol, initialize_all, ignore_protocol, check_interval_var, transition_duration_var, close_viewer_on_left_click, show_starfield, selected_effect
+    use_protocol = not args.noprotocol
+    initialize_all = args.allprotocol
+    ignore_protocol = args.noprotocol
+
     if args.gui:
         gui_root = build_gui(noclick_forced_off)
         gui_root.mainloop()
     else:
-        global use_protocol, initialize_all, ignore_protocol, check_interval_var, transition_duration_var, close_viewer_on_left_click, show_starfield
-        use_protocol = not args.noprotocol
-        initialize_all = args.allprotocol
-        ignore_protocol = args.noprotocol
         if noclick_forced_off:
             close_viewer_on_left_click = False
         run_viewer()
