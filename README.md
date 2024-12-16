@@ -11,7 +11,8 @@ that uses resources intelligently and can be flexibly controlled using various c
 For presentations, slideshows, image creation using Stable Diffusion in a batch, Wildlife Cameras OPs
 or other applications even where memory efficient image display is required.
 
-Newly added "-gui" Mode:
+Usual if you start the script it waits for images (or show existing images until new images show up)
+without the GUI. If you like to see the graphical user interface you can start it using "timedviewer.py -gui".
 
 ![timedviewer_config](https://github.com/user-attachments/assets/3866fd80-3c36-4b48-b2da-d312134227cc)
 
