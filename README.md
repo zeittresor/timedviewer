@@ -11,8 +11,9 @@ that uses resources intelligently and can be flexibly controlled using various c
 For presentations, slideshows, image creation using Stable Diffusion in a batch, Wildlife Cameras OPs
 or other applications even where memory efficient image display is required.
 
-Usual if you start the script it waits for images (or show existing images until new images show up)
-without the GUI. If you like to see the graphical user interface you can start it using "timedviewer.py -gui".
+If you start the script just select the folder what you want to be "observed" (including its subfolders)
+by the script and click start. Now any not already viewed image will be viewed. After all already viewed
+images are viewed the script will wait until new images are availabe inside any subfolder and view them.
 
 ![timedviewer_config](https://github.com/user-attachments/assets/3866fd80-3c36-4b48-b2da-d312134227cc)
 
@@ -29,7 +30,7 @@ optional arguments:
 
   -h, --help         show this help message and exit
 
-  -gui               Start the tool in GUI Mode with additional options
+  -nogui             Start the tool without GUI Mode with additional options
   
   -noprotocol        Ignore the protocol file and display all images.
   
@@ -46,5 +47,4 @@ optional arguments:
 Source: https://github.com/zeittresor/timedviewer
 
 Requirements: Make sure you have installed the additional python library
-"PyGame" using "pip install pygame". Start it using "py timedviewer.py" using console
-or as a shortcut with parameter "timedviewer.py -gui" for the graphical interface mode.
+"PyGame" using "pip install pygame". Start the script using "py timedviewer.py".
