@@ -15,6 +15,8 @@ If you start the script just select the folder what you want to be "observed" (i
 by the script and click start. Now any not already viewed image will be viewed. After all already viewed
 images are viewed the script will wait until new images are availabe inside any subfolder and view them.
 
+btw. to get some help there are tooltips for every visible function of the GUI. :-)
+
 ![TimedViewer](https://github.com/user-attachments/assets/7e8c8a74-0f43-49e2-9538-b5601add6a7d)
 
 
