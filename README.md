@@ -51,3 +51,12 @@ Source: https://github.com/zeittresor/timedviewer
 
 Requirements: Make sure you have installed the additional python library
 "PyGame" using "pip install pygame". Start the script using "py timedviewer.py".
+
+v3.1 (01/2025)
+- Added Option for All Protocol (-25)
+- Added Yo-Yo Image Loop
+- Added Presets for default values and for FUM (FreeU-Move) Extension for Stable Diffusion Forge WebUI
+  (FreeU-Move Extension is available here https://github.com/zeittresor/sd-forge-fum)
+
+v3.0 (12/2024)
+- Commandline version changed to GUI Version by default
