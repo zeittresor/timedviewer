@@ -55,6 +55,7 @@ Requirements: Make sure you have installed the additional python library
 v3.1 (01/2025)
 - Added Option for All Protocol (-25)
 - Added Yo-Yo Image Loop
+- Added ignore transition effect (for loop)
 - Added Presets for default values and for FUM (FreeU-Move) Extension for Stable Diffusion Forge WebUI
   (FreeU-Move Extension is available here https://github.com/zeittresor/sd-forge-fum)
 
