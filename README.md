@@ -17,7 +17,7 @@ images are viewed the script will wait until new images are availabe inside any 
 
 btw. to get some help there are tooltips for every visible function of the GUI. :-)
 
-![TimedViewer](https://github.com/user-attachments/assets/7e8c8a74-0f43-49e2-9538-b5601add6a7d)
+![timedviewer_v3_1](https://github.com/user-attachments/assets/bd329b72-0a54-4aca-8ef9-d388d66c235c)
 
 
 Optional Starfield Effect while waiting for new images is available using Gui Mode.
