@@ -26,7 +26,7 @@ selected_directory = os.getcwd()
 use_protocol = True
 initialize_all = False
 initialize_all_minus10 = False
-initialize_all_minus25 = False
+initialize_all_minus75 = False
 ignore_protocol = False
 loop_mode = False
 yoyo_mode = False
@@ -134,12 +134,12 @@ def parse_arguments():
     )
     return parser.parse_args()
 
-def initialize_protocol(directory, protocol_path, use_protocol, initialize_all, initialize_all_minus10, initialize_all_minus25):
+def initialize_protocol(directory, protocol_path, use_protocol, initialize_all, initialize_all_minus10, initialize_all_minus75):
     displayed_images = set()
     if use_protocol:
-        if initialize_all_minus25:
+        if initialize_all_minus75:
             all_images = get_image_files(directory)
-            skip_count = 25
+            skip_count = 75
             if len(all_images) < skip_count:
                 skip_count = len(all_images)
             images_to_write = all_images[:len(all_images) - skip_count]
@@ -364,7 +364,7 @@ def update_and_draw_starfield(screen, stars, screen_size):
         screen.set_at((int(star[0]), int(star[1])), (255, 255, 255))
 
 def run_viewer():
-    global selected_directory, use_protocol, initialize_all, initialize_all_minus10, initialize_all_minus25
+    global selected_directory, use_protocol, initialize_all, initialize_all_minus10, initialize_all_minus75
     global ignore_protocol, loop_mode, yoyo_mode, close_viewer_on_left_click
     global selected_effect, check_interval_var, transition_duration_var
     global waiting_for_new_images_message, any_image_displayed, show_starfield
@@ -379,7 +379,7 @@ def run_viewer():
         actual_use_protocol,
         initialize_all,
         initialize_all_minus10,
-        initialize_all_minus25
+        initialize_all_minus75
     )
 
     pygame.init()
@@ -632,7 +632,7 @@ def create_tooltip(widget, text):
 
 def build_gui(noclick_forced_off):
     global selected_directory, ignore_protocol, loop_mode, yoyo_mode
-    global initialize_all, initialize_all_minus10, initialize_all_minus25
+    global initialize_all, initialize_all_minus10, initialize_all_minus75
     global close_viewer_on_left_click, selected_effect
     global check_interval_var, transition_duration_var, show_starfield
     global ignore_transition_effect
@@ -710,7 +710,7 @@ def build_gui(noclick_forced_off):
             yoyo_var.set(False)
             allprotocol_var.set(False)
             allprotocolminus10_var.set(False)
-            allprotocolminus25_var.set(False)
+            allprotocolminus75_var.set(False)
             closeleft_var.set(True and not noclick_forced_off)
             starfield_var.set(True)
             ignore_transition_effect_var.set(False)
@@ -725,7 +725,7 @@ def build_gui(noclick_forced_off):
             yoyo_var.set(False)
             allprotocol_var.set(False)
             allprotocolminus10_var.set(False)
-            allprotocolminus25_var.set(False)
+            allprotocolminus75_var.set(False)
             closeleft_var.set(True and not noclick_forced_off)
             starfield_var.set(False)
             ignore_transition_effect_var.set(False)
@@ -769,9 +769,9 @@ def build_gui(noclick_forced_off):
     allprotocolminus10_check = tk.Checkbutton(right_frame, text="Use allprotocol (-10)", variable=allprotocolminus10_var)
     allprotocolminus10_check.grid(row=7, column=0, sticky="w", pady=(0, 5))
 
-    allprotocolminus25_var = tk.BooleanVar(value=initialize_all_minus25)
-    allprotocolminus25_check = tk.Checkbutton(right_frame, text="Use allprotocol (-25)", variable=allprotocolminus25_var)
-    allprotocolminus25_check.grid(row=8, column=0, sticky="w", pady=(0, 5))
+    allprotocolminus75_var = tk.BooleanVar(value=initialize_all_minus75)
+    allprotocolminus75_check = tk.Checkbutton(right_frame, text="Use allprotocol (-75)", variable=allprotocolminus75_var)
+    allprotocolminus75_check.grid(row=8, column=0, sticky="w", pady=(0, 5))
 
     closeleft_var = tk.BooleanVar(value=close_viewer_on_left_click and not noclick_forced_off)
     closeleft_check = tk.Checkbutton(right_frame, text="Close viewer with left click", variable=closeleft_var)
@@ -789,25 +789,25 @@ def build_gui(noclick_forced_off):
     def handle_allprotocol_toggle(*args):
         if allprotocol_var.get():
             allprotocolminus10_var.set(False)
-            allprotocolminus25_var.set(False)
+            allprotocolminus75_var.set(False)
             allprotocolminus10_check.config(state="disabled")
-            allprotocolminus25_check.config(state="disabled")
+            allprotocolminus75_check.config(state="disabled")
         else:
             allprotocolminus10_check.config(state="normal")
-            allprotocolminus25_check.config(state="normal")
+            allprotocolminus75_check.config(state="normal")
 
     def handle_allprotocolminus10_toggle(*args):
         if allprotocolminus10_var.get():
             allprotocol_var.set(False)
             allprotocol_check.config(state="disabled")
-            allprotocolminus25_var.set(False)
-            allprotocolminus25_check.config(state="disabled")
+            allprotocolminus75_var.set(False)
+            allprotocolminus75_check.config(state="disabled")
         else:
             allprotocol_check.config(state="normal")
-            allprotocolminus25_check.config(state="normal")
+            allprotocolminus75_check.config(state="normal")
 
-    def handle_allprotocolminus25_toggle(*args):
-        if allprotocolminus25_var.get():
+    def handle_allprotocolminus75_toggle(*args):
+        if allprotocolminus75_var.get():
             allprotocol_var.set(False)
             allprotocol_check.config(state="disabled")
             allprotocolminus10_var.set(False)
@@ -818,10 +818,10 @@ def build_gui(noclick_forced_off):
 
     allprotocol_var.trace_add('write', handle_allprotocol_toggle)
     allprotocolminus10_var.trace_add('write', handle_allprotocolminus10_toggle)
-    allprotocolminus25_var.trace_add('write', handle_allprotocolminus25_toggle)
+    allprotocolminus75_var.trace_add('write', handle_allprotocolminus75_toggle)
     handle_allprotocol_toggle()
     handle_allprotocolminus10_toggle()
-    handle_allprotocolminus25_toggle()
+    handle_allprotocolminus75_toggle()
 
     def handle_noprotocol_toggle(*args):
         if noprotocol_var.get():
@@ -850,7 +850,7 @@ def build_gui(noclick_forced_off):
 
     def on_start():
         global selected_directory, ignore_protocol, loop_mode, yoyo_mode
-        global initialize_all, initialize_all_minus10, initialize_all_minus25
+        global initialize_all, initialize_all_minus10, initialize_all_minus75
         global close_viewer_on_left_click, selected_effect
         global check_interval_var, transition_duration_var, show_starfield
         global ignore_transition_effect
@@ -876,7 +876,7 @@ def build_gui(noclick_forced_off):
             close_viewer_on_left_click = closeleft_var.get()
         initialize_all = allprotocol_var.get()
         initialize_all_minus10 = allprotocolminus10_var.get()
-        initialize_all_minus25 = allprotocolminus25_var.get()
+        initialize_all_minus75 = allprotocolminus75_var.get()
         selected_effect = effect_var.get()
         show_starfield = starfield_var.get()
         ignore_transition_effect = ignore_transition_effect_var.get()
@@ -906,7 +906,7 @@ def build_gui(noclick_forced_off):
     create_tooltip(ignore_transition_effect_check, "If enabled (and loop is on), no transition effect is used; images switch instantly.")
     create_tooltip(allprotocol_check, "If checked, mark all current images as displayed right away.")
     create_tooltip(allprotocolminus10_check, "Like 'allprotocol', but skip the newest 10 images.")
-    create_tooltip(allprotocolminus25_check, "Like 'allprotocol', but skip the newest 25 images.")
+    create_tooltip(allprotocolminus75_check, "Like 'allprotocol', but skip the newest 75 images.")
     create_tooltip(closeleft_check, "If enabled, you can close the viewer by left-clicking in fullscreen.")
     create_tooltip(starfield_check, "If enabled, a starfield background is shown while waiting for images.")
     create_tooltip(delete_button, "Delete the protocol file (displayed_images.csv) after confirmation.")
@@ -951,7 +951,7 @@ def main():
         hide_console_window()
 
     global use_protocol, ignore_protocol, loop_mode, yoyo_mode
-    global initialize_all, initialize_all_minus10, initialize_all_minus25
+    global initialize_all, initialize_all_minus10, initialize_all_minus75
     global check_interval_var, transition_duration_var
     global close_viewer_on_left_click, show_starfield, selected_effect
 
