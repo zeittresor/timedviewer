@@ -17,7 +17,7 @@ TRANSITION_DURATION = 3
 IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.bmp', '.gif']
 PROTOCOL_FILE = 'displayed_images.csv'
 VERSION_INFO = (
-    "TimedViewer v3.1.0\n"
+    "TimedViewer v3.2.0\n"
     "An open-source project from https://github.com/zeittresor/timedviewer\n"
     "Licensed under MIT License."
 )
@@ -113,6 +113,14 @@ def parse_arguments():
         )
     )
     parser.add_argument(
+        '-allprotocolminus75',
+        action='store_true',
+        help=(
+            'Like -allprotocol, but skip the newest 75 images. '
+            'So only older images are added to the protocol immediately.'
+        )
+    )
+    parser.add_argument(
         '-version',
         action='store_true',
         help='Display version information and exit.'
@@ -150,7 +158,7 @@ def initialize_protocol(directory, protocol_path, use_protocol, initialize_all, 
                         writer.writerow([image_path])
                         displayed_images.add(image_path)
                 if skip_count > 0:
-                    print(f"All existing images have been added to the protocol, except the newest {skip_count} images.")
+                    print(f"All existing images have been added to the protocol,  except the newest {skip_count} images.")
             except Exception as e:
                 print(f"Error initializing protocol file: {e}")
         elif initialize_all_minus10:
@@ -166,7 +174,7 @@ def initialize_protocol(directory, protocol_path, use_protocol, initialize_all, 
                         writer.writerow([image_path])
                         displayed_images.add(image_path)
                 if skip_count > 0:
-                    print(f"All existing images have been added to the protocol, except the newest {skip_count} images.")
+                    print(f"All existing images have been added to the protocol,  except the newest {skip_count} images.")
             except Exception as e:
                 print(f"Error initializing protocol file: {e}")
         elif initialize_all:
@@ -177,7 +185,7 @@ def initialize_protocol(directory, protocol_path, use_protocol, initialize_all, 
                     for image_path in all_images:
                         writer.writerow([image_path])
                         displayed_images.add(image_path)
-                print(f"All existing images have been added to the protocol file '{PROTOCOL_FILE}'.")
+                print(f"All existing images have been added to the protocol file  '{PROTOCOL_FILE}'.")
             except Exception as e:
                 print(f"Error initializing protocol file: {e}")
         else:
@@ -227,7 +235,7 @@ def draw_paint_transition(screen, screen_size, current_image, next_image, alpha,
     if current_image:
         temp_current = current_image.copy()
         temp_current.set_alpha(int(255 * (1 - alpha)))
-        screen.blit(temp_current, temp_current.get_rect(center=(screen_width//2, screen_height//2)))
+        screen.blit(temp_current, temp_current.get_rect(center=(screen_width//2,  screen_height//2)))
     if not next_image:
         return
     nx_off_x = (screen_width - next_image.get_width()) // 2
@@ -251,51 +259,51 @@ def draw_paint_transition(screen, screen_size, current_image, next_image, alpha,
                     line_surf = next_image.subsurface((x_start, y, reveal_width, 1))
                     screen.blit(line_surf, (nx_off_x + x_start, nx_off_y + y))
     elif direction == "BL2TR":
-        for local_row, real_y in enumerate(range(next_image.get_height()-1, -1, -1)):
-            x_cut = int(diagonal_line - ((next_image.get_height() - 1 - real_y) + nx_off_y))
+        for local_row, real_y in enumerate(range(next_image.get_height()-1, -1,  -1)):
+            x_cut = int(diagonal_line - ((next_image.get_height() - 1 - real_y)  + nx_off_y))
             if x_cut > 0:
                 reveal_width = min(x_cut, next_image.get_width())
                 if reveal_width > 0:
-                    line_surf = next_image.subsurface((0, real_y, reveal_width, 1))
+                    line_surf = next_image.subsurface((0, real_y, reveal_width,  1))
                     screen.blit(line_surf, (nx_off_x, nx_off_y + real_y))
     elif direction == "BR2TL":
-        for local_row, real_y in enumerate(range(next_image.get_height()-1, -1, -1)):
-            x_cut = int(diagonal_line - ((next_image.get_height() - 1 - real_y) + nx_off_y))
+        for local_row, real_y in enumerate(range(next_image.get_height()-1, -1,  -1)):
+            x_cut = int(diagonal_line - ((next_image.get_height() - 1 - real_y)  + nx_off_y))
             if x_cut > 0:
                 reveal_width = min(x_cut, next_image.get_width())
                 if reveal_width > 0:
                     x_start = next_image.get_width() - reveal_width
-                    line_surf = next_image.subsurface((x_start, real_y, reveal_width, 1))
-                    screen.blit(line_surf, (nx_off_x + x_start, nx_off_y + real_y))
+                    line_surf = next_image.subsurface((x_start, real_y,  reveal_width, 1))
+                    screen.blit(line_surf, (nx_off_x + x_start, nx_off_y +  real_y))
 
 def draw_roll_transition(screen, screen_size, current_image, next_image, alpha, transition_cache):
     if 'roll_dir' not in transition_cache:
-        transition_cache['roll_dir'] = random.choice(["TOP2DOWN", "DOWN2TOP", "LEFT2RIGHT", "RIGHT2LEFT"])
+        transition_cache['roll_dir'] = random.choice(["TOP2DOWN", "DOWN2TOP",  "LEFT2RIGHT", "RIGHT2LEFT"])
     direction = transition_cache['roll_dir']
     screen_width, screen_height = screen_size
     if current_image:
         temp_current = current_image.copy()
         temp_current.set_alpha(int(255 * (1 - alpha)))
-        screen.blit(temp_current, temp_current.get_rect(center=(screen_width//2, screen_height//2)))
+        screen.blit(temp_current, temp_current.get_rect(center=(screen_width//2,  screen_height//2)))
     if not next_image:
         return
     temp_next = next_image.copy()
     temp_next.set_alpha(int(255 * alpha))
     if direction == "TOP2DOWN":
         roll_offset = int((1 - alpha) * screen_height)
-        nx_rect = temp_next.get_rect(center=(screen_width//2, (screen_height//2) - roll_offset))
+        nx_rect = temp_next.get_rect(center=(screen_width//2, (screen_height//2)  - roll_offset))
         screen.blit(temp_next, nx_rect)
     elif direction == "DOWN2TOP":
         roll_offset = int((1 - alpha) * screen_height)
-        nx_rect = temp_next.get_rect(center=(screen_width//2, (screen_height//2) + roll_offset))
+        nx_rect = temp_next.get_rect(center=(screen_width//2, (screen_height//2)  + roll_offset))
         screen.blit(temp_next, nx_rect)
     elif direction == "LEFT2RIGHT":
         roll_offset = int((1 - alpha) * screen_width)
-        nx_rect = temp_next.get_rect(center=((screen_width//2) - roll_offset, screen_height//2))
+        nx_rect = temp_next.get_rect(center=((screen_width//2) - roll_offset,  screen_height//2))
         screen.blit(temp_next, nx_rect)
     elif direction == "RIGHT2LEFT":
         roll_offset = int((1 - alpha) * screen_width)
-        nx_rect = temp_next.get_rect(center=((screen_width//2) + roll_offset, screen_height//2))
+        nx_rect = temp_next.get_rect(center=((screen_width//2) + roll_offset,  screen_height//2))
         screen.blit(temp_next, nx_rect)
 
 def draw_transition(screen, screen_size, current_image, next_image, alpha, effect, transition_cache):
@@ -304,32 +312,32 @@ def draw_transition(screen, screen_size, current_image, next_image, alpha, effec
         if current_image:
             temp_current = current_image.copy()
             temp_current.set_alpha(int(255 * (1 - alpha)))
-            screen.blit(temp_current, temp_current.get_rect(center=(screen_size[0]//2, screen_size[1]//2)))
+            screen.blit(temp_current,  temp_current.get_rect(center=(screen_size[0]//2, screen_size[1]//2)))
         if next_image:
             temp_next = next_image.copy()
             temp_next.set_alpha(int(255 * alpha))
-            screen.blit(temp_next, temp_next.get_rect(center=(screen_size[0]//2, screen_size[1]//2)))
+            screen.blit(temp_next, temp_next.get_rect(center=(screen_size[0]//2,  screen_size[1]//2)))
     elif effect == 'Dissolve':
         if 'blocks' not in transition_cache:
-            transition_cache['blocks'] = generate_dissolve_blocks(screen_size, block_size=20)
+            transition_cache['blocks'] = generate_dissolve_blocks(screen_size,  block_size=20)
         blocks = transition_cache['blocks']
         total_blocks = len(blocks)
         revealed_count = int(total_blocks * alpha)
         if current_image:
-            screen.blit(current_image, current_image.get_rect(center=(screen_size[0]//2, screen_size[1]//2)))
+            screen.blit(current_image,  current_image.get_rect(center=(screen_size[0]//2, screen_size[1]//2)))
         if next_image:
             for i in range(revealed_count):
                 x, y, w, h = blocks[i]
                 sx = x - (screen_size[0] - next_image.get_width())//2
                 sy = y - (screen_size[1] - next_image.get_height())//2
-                if sx < 0 or sy < 0 or sx + w > next_image.get_width() or sy + h > next_image.get_height():
+                if sx < 0 or sy < 0 or sx + w > next_image.get_width() or sy + h  > next_image.get_height():
                     continue
                 block_surf = next_image.subsurface((sx, sy, w, h))
                 screen.blit(block_surf, (x, y))
     elif effect == 'Paint':
-        draw_paint_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
+        draw_paint_transition(screen, screen_size, current_image, next_image,  alpha, transition_cache)
     elif effect == 'Roll':
-        draw_roll_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
+        draw_roll_transition(screen, screen_size, current_image, next_image,  alpha, transition_cache)
     pygame.display.flip()
 
 def init_starfield(num_stars, screen_size):
@@ -356,7 +364,7 @@ def update_and_draw_starfield(screen, stars, screen_size):
         factor = star[2] / (dist + 0.001)
         star[0] += dx * factor
         star[1] += dy * factor
-        if star[0] < 0 or star[0] >= screen_width or star[1] < 0 or star[1] >= screen_height:
+        if star[0] < 0 or star[0] >= screen_width or star[1] < 0 or star[1] >=  screen_height:
             r = random.uniform(10, 50)
             star[0] = center_x + r*(random.random()-0.5)
             star[1] = center_y + r*(random.random()-0.5)
@@ -492,7 +500,7 @@ def run_viewer():
                         transition_cache['effect'] = choose_effect(selected_effect)
                 else:
                     screen.fill((0, 0, 0))
-                    screen.blit(current_image, current_image.get_rect(center=(screen_size[0]//2, screen_size[1]//2)))
+                    screen.blit(current_image,  current_image.get_rect(center=(screen_size[0]//2, screen_size[1]//2)))
                     pygame.display.flip()
                     if yoyo_mode:
                         next_image = get_next_image_yoyo()
@@ -538,6 +546,7 @@ def run_viewer():
             for image_file in image_files:
                 if image_file not in displayed_images:
                     loaded_image = load_and_scale_image(image_file, screen_size)
+
                     if loaded_image:
                         next_image = loaded_image
                         chosen_effect = choose_effect(selected_effect)
@@ -571,7 +580,7 @@ def run_viewer():
         else:
             if current_image:
                 screen.fill((0, 0, 0))
-                screen.blit(current_image, current_image.get_rect(center=(screen_size[0]//2, screen_size[1]//2)))
+                screen.blit(current_image,  current_image.get_rect(center=(screen_size[0]//2, screen_size[1]//2)))
                 pygame.display.flip()
             else:
                 if waiting_for_new_images_message and not any_image_displayed:
@@ -619,7 +628,7 @@ def create_tooltip(widget, text):
         tipwindow = tw = tk.Toplevel(widget)
         tw.wm_overrideredirect(True)
         tw.wm_geometry(f"+{x}+{y}")
-        label = tk.Label(tw, text=text, justify=tk.LEFT, background="#ffffe0", relief=tk.SOLID,
+        label = tk.Label(tw, text=text, justify=tk.LEFT, background="#ffffe0",  relief=tk.SOLID,
                          borderwidth=1, font=("tahoma", "8", "normal"))
         label.pack(ipadx=1)
     def hide_tip(event):
@@ -690,12 +699,15 @@ def build_gui(noclick_forced_off):
     transition_entry = tk.Entry(left_frame, width=10)
     transition_entry.insert(0, str(transition_duration_var))
     transition_entry.grid(row=7, column=0, sticky="w")
+    interval_entry.bind("<KeyRelease>", lambda e: preset_var.set("none"))
+    transition_entry.bind("<KeyRelease>", lambda e: preset_var.set("none"))
 
     preset_frame = tk.Frame(left_frame)
     preset_frame.grid(row=8, column=0, sticky="w", pady=(25, 5))
     preset_label = tk.Label(preset_frame, text="Presets:")
     preset_label.pack(side=tk.TOP, anchor="w")
-    preset_var = tk.StringVar(value="none")
+    preset_value = "default" if check_interval_var == CHECK_INTERVAL and transition_duration_var == TRANSITION_DURATION else "none"
+    preset_var = tk.StringVar(value=preset_value)
 
     def apply_preset():
         p = preset_var.get()
@@ -704,6 +716,21 @@ def build_gui(noclick_forced_off):
             interval_entry.insert(0, "3")
             transition_entry.delete(0, tk.END)
             transition_entry.insert(0, "3")
+            effect_var.set("Fade")
+            noprotocol_var.set(False)
+            loop_var.set(False)
+            yoyo_var.set(False)
+            allprotocol_var.set(False)
+            allprotocolminus10_var.set(False)
+            allprotocolminus75_var.set(False)
+            closeleft_var.set(True and not noclick_forced_off)
+            starfield_var.set(True)
+            ignore_transition_effect_var.set(False)
+        elif p == "slideshow":
+            interval_entry.delete(0, tk.END)
+            interval_entry.insert(0, "4")
+            transition_entry.delete(0, tk.END)
+            transition_entry.insert(0, "1")
             effect_var.set("Fade")
             noprotocol_var.set(False)
             loop_var.set(False)
@@ -731,8 +758,10 @@ def build_gui(noclick_forced_off):
             ignore_transition_effect_var.set(False)
 
     preset_default = tk.Radiobutton(preset_frame, text="default values", variable=preset_var, value="default", command=apply_preset)
+    preset_slideshow = tk.Radiobutton(preset_frame, text="Slideshow", variable=preset_var, value="slideshow", command=apply_preset)
     preset_sd_fum = tk.Radiobutton(preset_frame, text="SD-FUM animation", variable=preset_var, value="sd_fum", command=apply_preset)
     preset_default.pack(side=tk.TOP, anchor="w")
+    preset_slideshow.pack(side=tk.TOP, anchor="w")
     preset_sd_fum.pack(side=tk.TOP, anchor="w")
 
     effect_label = tk.Label(right_frame, text="Transition Effect:")
@@ -859,10 +888,14 @@ def build_gui(noclick_forced_off):
             ci = float(interval_entry.get())
         except:
             ci = CHECK_INTERVAL
+            interval_entry.delete(0, tk.END)
+            interval_entry.insert(0, str(CHECK_INTERVAL))
         try:
             td = float(transition_entry.get())
         except:
             td = TRANSITION_DURATION
+            transition_entry.delete(0, tk.END)
+            transition_entry.insert(0, str(TRANSITION_DURATION))
 
         check_interval_var = ci
         transition_duration_var = td
@@ -888,7 +921,6 @@ def build_gui(noclick_forced_off):
 
     start_button = tk.Button(bottom_frame, text="Start", command=on_start, font=("Arial", 14, "bold"))
     start_button.pack()
-
     create_tooltip(dir_label, "Specify the directory where images will be monitored.")
     create_tooltip(dir_button, "Open a dialog to select the directory to watch.")
     create_tooltip(selected_dir_label, "The currently selected directory.")
@@ -898,6 +930,7 @@ def build_gui(noclick_forced_off):
     create_tooltip(transition_entry, "Enter a numeric value for the transition duration.")
     create_tooltip(preset_default, "Reset to default values")
     create_tooltip(preset_sd_fum, "Monitor progress of animation creation using https://github.com/zeittresor/sd-forge-fum")
+    create_tooltip(preset_slideshow, "Switch to slideshow mode (4 s interval, 1 s transition).")
     create_tooltip(effect_label, "Select the visual transition effect between images.")
     create_tooltip(effect_dropdown, "Choose from Fade, Dissolve, Paint, Roll or Random.")
     create_tooltip(noprotocol_check, "If checked, previously displayed images are not skipped.")
@@ -912,6 +945,7 @@ def build_gui(noclick_forced_off):
     create_tooltip(delete_button, "Delete the protocol file (displayed_images.csv) after confirmation.")
     create_tooltip(start_button, "Start the fullscreen viewer with these settings.")
     create_tooltip(open_dir_button, "Open the selected directory in your filemanager.")
+    root.bind("<Return>", lambda e: on_start())
 
     return root
 
@@ -957,11 +991,17 @@ def main():
 
     use_protocol = not args.noprotocol
     ignore_protocol = args.noprotocol
-    if args.allprotocolminus10:
+    if args.allprotocolminus75:
+        initialize_all_minus75 = True
+        initialize_all_minus10 = False
+        initialize_all = False
+    elif args.allprotocolminus10:
         initialize_all_minus10 = True
+        initialize_all_minus75 = False
         initialize_all = False
     else:
         initialize_all_minus10 = False
+        initialize_all_minus75 = False
         initialize_all = args.allprotocol
 
     if args.nogui:
