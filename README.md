@@ -17,12 +17,7 @@ images are viewed the script will wait until new images are availabe inside any 
 
 btw. to get some help there are tooltips for every visible function of the GUI. :-)
 
-<img width="582" height="536" alt="grafik" src="https://github.com/user-attachments/assets/5595d379-b041-4f63-94cd-c7cc4b4ccdab" />
-
-Optional Starfield Effect while waiting for new images is available using Gui Mode.
-
-![grafik](https://github.com/user-attachments/assets/574429ef-6045-4fda-b9aa-8f10b1db4db4)
-
+<img width="646" height="627" alt="grafik" src="https://github.com/user-attachments/assets/5ee632dd-88cf-4710-b281-f561b06700fd" />
 
 usage: timedviewer.py [-commandlineoption]
 
