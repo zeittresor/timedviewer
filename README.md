@@ -46,6 +46,15 @@ Source: https://github.com/zeittresor/timedviewer
 Requirements: Make sure you have installed the additional python library
 "PyGame" using "pip install pygame". Start the script using "py timedviewer.py".
 
+v3.3 (09/2025)
+- Added Effects
+- More Presets
+- Bugfixes
+
+v3.2 (04/2025)
+- Changed -25 to -75 in All Protocol Option
+- Added Effects
+
 v3.1 (01/2025)
 - Added Option for All Protocol (-25)
 - Added Yo-Yo Image Loop
