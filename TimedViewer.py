@@ -4,22 +4,22 @@ import time
 import csv
 import argparse
 import pygame
-import gc
 import random
 import platform
 from pygame.locals import *
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import subprocess
+import gc
 
-CHECK_INTERVAL = 3
-TRANSITION_DURATION = 3
+CHECK_INTERVAL = 3.0
+TRANSITION_DURATION = 3.0
 IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.bmp', '.gif']
 PROTOCOL_FILE = 'displayed_images.csv'
 VERSION_INFO = (
-    "TimedViewer v3.2.0\n"
-    "An open-source project from https://github.com/zeittresor/timedviewer\n"
-    "Licensed under MIT License."
+    "TimedViewer v3.3.0\n"
+    "An enhanced open–source project from https://github.com/zeittresor/timedviewer\n"
+    "Licensed under the MIT License."
 )
 
 selected_directory = os.getcwd()
@@ -38,20 +38,24 @@ transition_duration_var = TRANSITION_DURATION
 any_image_displayed = False
 show_starfield = True
 ignore_transition_effect = False
+shuffle_mode = False
+VIEWPATH_FILE = 'viewpath.txt'
 
-VIEWPATH_FILE = "viewpath.txt"
 
-def get_image_files(directory):
+def get_image_files(directory: str):
     image_files = []
-    for root, dirs, files in os.walk(directory):
+    for root, _dirs, files in os.walk(directory):
         for file in files:
             if os.path.splitext(file)[1].lower() in IMAGE_EXTENSIONS:
                 full_path = os.path.abspath(os.path.join(root, file))
                 image_files.append(full_path)
     image_files.sort(key=lambda x: os.path.getmtime(x))
+    if shuffle_mode:
+        random.shuffle(image_files)
     return image_files
 
-def load_and_scale_image(path, screen_size):
+
+def load_and_scale_image(path: str, screen_size):
     try:
         image = pygame.image.load(path)
         image = image.convert_alpha()
@@ -65,7 +69,8 @@ def load_and_scale_image(path, screen_size):
     image = pygame.transform.smoothscale(image, new_size)
     return image
 
-def load_displayed_images(protocol_path):
+
+def load_displayed_images(protocol_path: str):
     displayed = set()
     if os.path.exists(protocol_path):
         try:
@@ -78,7 +83,8 @@ def load_displayed_images(protocol_path):
             print(f"Error reading protocol file: {e}")
     return displayed
 
-def save_displayed_image(protocol_path, image_path):
+
+def save_displayed_image(protocol_path: str, image_path: str):
     try:
         with open(protocol_path, 'a', newline='', encoding='utf-8') as csvfile:
             writer = csv.writer(csvfile)
@@ -86,70 +92,34 @@ def save_displayed_image(protocol_path, image_path):
     except Exception as e:
         print(f"Error writing to protocol file: {e}")
 
+
 def parse_arguments():
     parser = argparse.ArgumentParser(
-        description='TimedViewer: Image display with transitions and logging.',
+        description=(
+            'TimedViewer: monitor a directory for new images and display them '
+            'full–screen with transition effects.'
+        ),
         formatter_class=argparse.RawTextHelpFormatter
     )
-    parser.add_argument(
-        '-noprotocol',
-        action='store_true',
-        help='Ignore the protocol file and display all images.'
-    )
-    parser.add_argument(
-        '-allprotocol',
-        action='store_true',
-        help=(
-            'Add all existing images in all subdirectories to the protocol file without displaying them. '
-            'Only newly added images will be displayed in subsequent runs.'
-        )
-    )
-    parser.add_argument(
-        '-allprotocolminus10',
-        action='store_true',
-        help=(
-            'Like -allprotocol, but skip the newest 10 images. '
-            'So only older images are added to the protocol immediately.'
-        )
-    )
-    parser.add_argument(
-        '-allprotocolminus75',
-        action='store_true',
-        help=(
-            'Like -allprotocol, but skip the newest 75 images. '
-            'So only older images are added to the protocol immediately.'
-        )
-    )
-    parser.add_argument(
-        '-version',
-        action='store_true',
-        help='Display version information and exit.'
-    )
-    parser.add_argument(
-        '-noclick',
-        action='store_true',
-        help='Disable closing viewer on left mouse click.'
-    )
-    parser.add_argument(
-        '-showconsole',
-        action='store_true',
-        help='Show console window (Windows only).'
-    )
-    parser.add_argument(
-        '-nogui',
-        action='store_true',
-        help='Start the viewer without a GUI.'
-    )
+    parser.add_argument('-noprotocol', action='store_true', help='Ignore the protocol file and display all images.')
+    parser.add_argument('-allprotocol', action='store_true', help='Mark all existing images as displayed without showing them.')
+    parser.add_argument('-allprotocolminus10', action='store_true', help='Like -allprotocol but skip the newest 10 images.')
+    parser.add_argument('-allprotocolminus75', action='store_true', help='Like -allprotocol but skip the newest 75 images.')
+    parser.add_argument('-version', action='store_true', help='Display version information and exit.')
+    parser.add_argument('-noclick', action='store_true', help='Disable closing viewer on left mouse click.')
+    parser.add_argument('-showconsole', action='store_true', help='Show console window (Windows only).')
+    parser.add_argument('-nogui', action='store_true', help='Start the viewer without the configuration GUI.')
+    parser.add_argument('-shuffle', action='store_true', help='Randomise the order of images when looping.')
     return parser.parse_args()
 
-def initialize_protocol(directory, protocol_path, use_protocol, initialize_all, initialize_all_minus10, initialize_all_minus75):
+
+def initialize_protocol(directory: str, protocol_path: str, use_protocol_flag: bool,
+                        init_all: bool, init_minus10: bool, init_minus75: bool):
     displayed_images = set()
-    if use_protocol:
-        if initialize_all_minus75:
+    if use_protocol_flag:
+        if init_minus75:
             all_images = get_image_files(directory)
-            skip_count = 75
-            if len(all_images) < skip_count:
-                skip_count = len(all_images)
+            skip_count = min(75, len(all_images))
             images_to_write = all_images[:len(all_images) - skip_count]
             try:
                 with open(protocol_path, 'w', newline='', encoding='utf-8') as csvfile:
@@ -158,14 +128,12 @@ def initialize_protocol(directory, protocol_path, use_protocol, initialize_all, 
                         writer.writerow([image_path])
                         displayed_images.add(image_path)
                 if skip_count > 0:
-                    print(f"All existing images have been added to the protocol,  except the newest {skip_count} images.")
+                    print(f"All existing images have been added to the protocol except the newest {skip_count} images.")
             except Exception as e:
                 print(f"Error initializing protocol file: {e}")
-        elif initialize_all_minus10:
+        elif init_minus10:
             all_images = get_image_files(directory)
-            skip_count = 10
-            if len(all_images) < skip_count:
-                skip_count = len(all_images)
+            skip_count = min(10, len(all_images))
             images_to_write = all_images[:len(all_images) - skip_count]
             try:
                 with open(protocol_path, 'w', newline='', encoding='utf-8') as csvfile:
@@ -174,10 +142,10 @@ def initialize_protocol(directory, protocol_path, use_protocol, initialize_all, 
                         writer.writerow([image_path])
                         displayed_images.add(image_path)
                 if skip_count > 0:
-                    print(f"All existing images have been added to the protocol,  except the newest {skip_count} images.")
+                    print(f"All existing images have been added to the protocol except the newest {skip_count} images.")
             except Exception as e:
                 print(f"Error initializing protocol file: {e}")
-        elif initialize_all:
+        elif init_all:
             all_images = get_image_files(directory)
             try:
                 with open(protocol_path, 'w', newline='', encoding='utf-8') as csvfile:
@@ -185,18 +153,20 @@ def initialize_protocol(directory, protocol_path, use_protocol, initialize_all, 
                     for image_path in all_images:
                         writer.writerow([image_path])
                         displayed_images.add(image_path)
-                print(f"All existing images have been added to the protocol file  '{PROTOCOL_FILE}'.")
+                print(f"All existing images have been added to the protocol file '{PROTOCOL_FILE}'.")
             except Exception as e:
                 print(f"Error initializing protocol file: {e}")
         else:
             displayed_images = load_displayed_images(protocol_path)
     return displayed_images
 
+
 def display_version_info():
     print(VERSION_INFO)
     sys.exit(0)
 
-def delete_protocol(protocol_path):
+
+def delete_protocol(protocol_path: str):
     if os.path.exists(protocol_path):
         if messagebox.askyesno("Delete Protocol", "Are you sure you want to delete the protocol file?"):
             try:
@@ -209,7 +179,8 @@ def delete_protocol(protocol_path):
     else:
         messagebox.showinfo("Info", "No protocol file found to delete.")
 
-def generate_dissolve_blocks(screen_size, block_size=20):
+
+def generate_dissolve_blocks(screen_size, block_size: int = 20):
     screen_width, screen_height = screen_size
     blocks = []
     for y in range(0, screen_height, block_size):
@@ -220,12 +191,34 @@ def generate_dissolve_blocks(screen_size, block_size=20):
     random.shuffle(blocks)
     return blocks
 
-def choose_effect(selected):
-    effects = ["Fade", "Dissolve", "Paint", "Roll"]
+
+def choose_effect(selected: str):
+    effects = [
+        "Fade",
+        "Dissolve",
+        "Paint",
+        "Roll",
+        "Zoom",
+        "Flip",
+        "Cube",
+        "CubeTR",
+        "CubeBL",
+        "CubeBR",
+        "Spin",
+        "Fractal",
+        "Pixelate",
+        "Diagonal",
+        "Circle",
+        "Domino",
+        "Dice",
+        "Balls",
+    ]
     if selected == "Random":
         return random.choice(effects)
-    else:
+    if selected in effects:
         return selected
+    return "Fade"
+
 
 def draw_paint_transition(screen, screen_size, current_image, next_image, alpha, transition_cache):
     if 'paint_dir' not in transition_cache:
@@ -235,7 +228,7 @@ def draw_paint_transition(screen, screen_size, current_image, next_image, alpha,
     if current_image:
         temp_current = current_image.copy()
         temp_current.set_alpha(int(255 * (1 - alpha)))
-        screen.blit(temp_current, temp_current.get_rect(center=(screen_width//2,  screen_height//2)))
+        screen.blit(temp_current, temp_current.get_rect(center=(screen_width // 2, screen_height // 2)))
     if not next_image:
         return
     nx_off_x = (screen_width - next_image.get_width()) // 2
@@ -259,88 +252,430 @@ def draw_paint_transition(screen, screen_size, current_image, next_image, alpha,
                     line_surf = next_image.subsurface((x_start, y, reveal_width, 1))
                     screen.blit(line_surf, (nx_off_x + x_start, nx_off_y + y))
     elif direction == "BL2TR":
-        for local_row, real_y in enumerate(range(next_image.get_height()-1, -1,  -1)):
-            x_cut = int(diagonal_line - ((next_image.get_height() - 1 - real_y)  + nx_off_y))
+        for _, real_y in enumerate(range(next_image.get_height() - 1, -1, -1)):
+            x_cut = int(diagonal_line - ((next_image.get_height() - 1 - real_y) + nx_off_y))
             if x_cut > 0:
                 reveal_width = min(x_cut, next_image.get_width())
                 if reveal_width > 0:
-                    line_surf = next_image.subsurface((0, real_y, reveal_width,  1))
+                    line_surf = next_image.subsurface((0, real_y, reveal_width, 1))
                     screen.blit(line_surf, (nx_off_x, nx_off_y + real_y))
     elif direction == "BR2TL":
-        for local_row, real_y in enumerate(range(next_image.get_height()-1, -1,  -1)):
-            x_cut = int(diagonal_line - ((next_image.get_height() - 1 - real_y)  + nx_off_y))
+        for _, real_y in enumerate(range(next_image.get_height() - 1, -1, -1)):
+            x_cut = int(diagonal_line - ((next_image.get_height() - 1 - real_y) + nx_off_y))
             if x_cut > 0:
                 reveal_width = min(x_cut, next_image.get_width())
                 if reveal_width > 0:
                     x_start = next_image.get_width() - reveal_width
-                    line_surf = next_image.subsurface((x_start, real_y,  reveal_width, 1))
-                    screen.blit(line_surf, (nx_off_x + x_start, nx_off_y +  real_y))
+                    line_surf = next_image.subsurface((x_start, real_y, reveal_width, 1))
+                    screen.blit(line_surf, (nx_off_x + x_start, nx_off_y + real_y))
+
 
 def draw_roll_transition(screen, screen_size, current_image, next_image, alpha, transition_cache):
     if 'roll_dir' not in transition_cache:
-        transition_cache['roll_dir'] = random.choice(["TOP2DOWN", "DOWN2TOP",  "LEFT2RIGHT", "RIGHT2LEFT"])
+        transition_cache['roll_dir'] = random.choice(["TOP2DOWN", "DOWN2TOP", "LEFT2RIGHT", "RIGHT2LEFT"])
     direction = transition_cache['roll_dir']
     screen_width, screen_height = screen_size
     if current_image:
         temp_current = current_image.copy()
         temp_current.set_alpha(int(255 * (1 - alpha)))
-        screen.blit(temp_current, temp_current.get_rect(center=(screen_width//2,  screen_height//2)))
+        screen.blit(temp_current, temp_current.get_rect(center=(screen_width // 2, screen_height // 2)))
     if not next_image:
         return
     temp_next = next_image.copy()
     temp_next.set_alpha(int(255 * alpha))
     if direction == "TOP2DOWN":
         roll_offset = int((1 - alpha) * screen_height)
-        nx_rect = temp_next.get_rect(center=(screen_width//2, (screen_height//2)  - roll_offset))
+        nx_rect = temp_next.get_rect(center=(screen_width // 2, (screen_height // 2) - roll_offset))
         screen.blit(temp_next, nx_rect)
     elif direction == "DOWN2TOP":
         roll_offset = int((1 - alpha) * screen_height)
-        nx_rect = temp_next.get_rect(center=(screen_width//2, (screen_height//2)  + roll_offset))
+        nx_rect = temp_next.get_rect(center=(screen_width // 2, (screen_height // 2) + roll_offset))
         screen.blit(temp_next, nx_rect)
     elif direction == "LEFT2RIGHT":
         roll_offset = int((1 - alpha) * screen_width)
-        nx_rect = temp_next.get_rect(center=((screen_width//2) - roll_offset,  screen_height//2))
+        nx_rect = temp_next.get_rect(center=((screen_width // 2) - roll_offset, screen_height // 2))
         screen.blit(temp_next, nx_rect)
     elif direction == "RIGHT2LEFT":
         roll_offset = int((1 - alpha) * screen_width)
-        nx_rect = temp_next.get_rect(center=((screen_width//2) + roll_offset,  screen_height//2))
+        nx_rect = temp_next.get_rect(center=((screen_width // 2) + roll_offset, screen_height // 2))
         screen.blit(temp_next, nx_rect)
+
+
+def draw_zoom_transition(screen, screen_size, current_image, next_image, alpha, transition_cache):
+    screen_width, screen_height = screen_size
+    if current_image:
+        temp_current = current_image.copy()
+        temp_current.set_alpha(int(255 * (1 - alpha)))
+        screen.blit(temp_current, temp_current.get_rect(center=(screen_width // 2, screen_height // 2)))
+    if next_image:
+        start_scale = 0.5
+        end_scale = 1.0
+        scale = start_scale + (end_scale - start_scale) * alpha
+        new_w = max(1, int(next_image.get_width() * scale))
+        new_h = max(1, int(next_image.get_height() * scale))
+        scaled = pygame.transform.smoothscale(next_image, (new_w, new_h))
+        scaled.set_alpha(int(255 * alpha))
+        screen.blit(scaled, scaled.get_rect(center=(screen_width // 2, screen_height // 2)))
+
+
+def draw_flip_transition(screen, screen_size, current_image, next_image, alpha, transition_cache):
+    w_center, h_center = screen_size[0] // 2, screen_size[1] // 2
+    if alpha < 0.5:
+        frac = alpha * 2.0
+        if current_image:
+            original_w, original_h = current_image.get_width(), current_image.get_height()
+            new_w = max(1, int(original_w * (1.0 - frac)))
+            scaled = pygame.transform.scale(current_image, (new_w, original_h))
+            scaled = pygame.transform.flip(scaled, True, False)
+            scaled.set_alpha(int(255 * (1.0 - frac)))
+            screen.blit(scaled, scaled.get_rect(center=(w_center, h_center)))
+    else:
+        frac = (alpha - 0.5) * 2.0
+        if next_image:
+            original_w, original_h = next_image.get_width(), next_image.get_height()
+            new_w = max(1, int(original_w * frac))
+            scaled = pygame.transform.scale(next_image, (new_w, original_h))
+            if new_w < original_w:
+                scaled = pygame.transform.flip(scaled, True, False)
+            scaled.set_alpha(int(255 * frac))
+            screen.blit(scaled, scaled.get_rect(center=(w_center, h_center)))
+
+
+def draw_cube_transition(screen, screen_size, current_image, next_image, alpha, transition_cache):
+    if 'cube_orientation' not in transition_cache:
+        transition_cache['cube_orientation'] = random.choice(["TL", "TR", "BL", "BR"])
+    orient = transition_cache['cube_orientation']
+    draw_cube_oriented_transition(screen, screen_size, current_image, next_image, alpha, transition_cache, orientation=orient)
+
+
+def draw_cube_oriented_transition(screen, screen_size, current_image, next_image, alpha, transition_cache, orientation="TL"):
+    w_center, h_center = screen_size[0] // 2, screen_size[1] // 2
+    if orientation == "TR":
+        sign_x, sign_y = 1, -1
+    elif orientation == "BL":
+        sign_x, sign_y = -1, 1
+    elif orientation == "BR":
+        sign_x, sign_y = 1, 1
+    else:
+        sign_x, sign_y = -1, -1
+    if current_image:
+        temp_current = current_image.copy()
+        temp_current.set_alpha(int(255 * (1.0 - alpha)))
+        screen.blit(temp_current, temp_current.get_rect(center=(w_center, h_center)))
+    if next_image:
+        start_scale = 0.2
+        end_scale = 1.0
+        scale = start_scale + (end_scale - start_scale) * alpha
+        new_w = max(1, int(next_image.get_width() * scale))
+        new_h = max(1, int(next_image.get_height() * scale))
+        scaled = pygame.transform.smoothscale(next_image, (new_w, new_h))
+        start_offset_x = sign_x * (screen_size[0] // 2)
+        start_offset_y = sign_y * (screen_size[1] // 2)
+        offset_x = int(start_offset_x * (1.0 - alpha))
+        offset_y = int(start_offset_y * (1.0 - alpha))
+        scaled.set_alpha(int(255 * alpha))
+        screen.blit(scaled, scaled.get_rect(center=(w_center + offset_x, h_center + offset_y)))
+
+
+def draw_spin_transition(screen, screen_size, current_image, next_image, alpha, transition_cache):
+    w_center, h_center = screen_size[0] // 2, screen_size[1] // 2
+    if current_image:
+        temp_current = current_image.copy()
+        temp_current.set_alpha(int(255 * (1.0 - alpha)))
+        screen.blit(temp_current, temp_current.get_rect(center=(w_center, h_center)))
+    if next_image:
+        angle = 360.0 * (1.0 - alpha)
+        scale = 0.5 + 0.5 * alpha
+        rotated = pygame.transform.rotozoom(next_image, angle, scale)
+        rotated.set_alpha(int(255 * alpha))
+        screen.blit(rotated, rotated.get_rect(center=(w_center, h_center)))
+
+
+def draw_pixelate_transition(screen, screen_size, current_image, next_image, alpha, transition_cache):
+    screen_width, screen_height = screen_size
+    if current_image:
+        temp_current = current_image.copy()
+        temp_current.set_alpha(int(255 * (1.0 - alpha)))
+        screen.blit(temp_current, temp_current.get_rect(center=(screen_width // 2, screen_height // 2)))
+    if next_image:
+        max_block = 50
+        block_size = max(1, int(max_block * (1.0 - alpha)) + 1)
+        w, h = next_image.get_width(), next_image.get_height()
+        down_w = max(1, w // block_size)
+        down_h = max(1, h // block_size)
+        temp_small = pygame.transform.smoothscale(next_image, (down_w, down_h))
+        pixelated = pygame.transform.scale(temp_small, (w, h))
+        pixelated.set_alpha(int(255 * alpha))
+        screen.blit(pixelated, pixelated.get_rect(center=(screen_width // 2, screen_height // 2)))
+
+
+def draw_diagonal_transition(screen, screen_size, current_image, next_image, alpha, transition_cache):
+    screen_width, screen_height = screen_size
+    if current_image:
+        temp_current = current_image.copy()
+        temp_current.set_alpha(int(255 * (1.0 - alpha)))
+        screen.blit(temp_current, temp_current.get_rect(center=(screen_width // 2, screen_height // 2)))
+    if next_image:
+        start_x = -screen_width // 2
+        start_y = -screen_height // 2
+        offset_x = int(start_x * (1.0 - alpha))
+        offset_y = int(start_y * (1.0 - alpha))
+        temp_next = next_image.copy()
+        temp_next.set_alpha(int(255 * alpha))
+        nx_rect = temp_next.get_rect(center=(screen_width // 2 + offset_x, screen_height // 2 + offset_y))
+        screen.blit(temp_next, nx_rect)
+
+
+def draw_cube_tr_transition(screen, screen_size, current_image, next_image, alpha, transition_cache):
+    draw_cube_oriented_transition(screen, screen_size, current_image, next_image, alpha, transition_cache, orientation="TR")
+
+
+def draw_cube_bl_transition(screen, screen_size, current_image, next_image, alpha, transition_cache):
+    draw_cube_oriented_transition(screen, screen_size, current_image, next_image, alpha, transition_cache, orientation="BL")
+
+
+def draw_cube_br_transition(screen, screen_size, current_image, next_image, alpha, transition_cache):
+    draw_cube_oriented_transition(screen, screen_size, current_image, next_image, alpha, transition_cache, orientation="BR")
+
+
+def generate_fractal_blocks(screen_size, depth=5):
+    screen_width, screen_height = screen_size
+    blocks = []
+    def subdivide(x, y, w, h, d):
+        if d <= 0 or w <= 1 or h <= 1:
+            blocks.append((x, y, w, h))
+        else:
+            half_w = w // 2
+            half_h = h // 2
+            subdivide(x, y, half_w, half_h, d - 1)
+            subdivide(x + half_w, y + half_h, w - half_w, h - half_h, d - 1)
+            subdivide(x + half_w, y, w - half_w, half_h, d - 1)
+            subdivide(x, y + half_h, half_w, h - half_h, d - 1)
+    subdivide(0, 0, screen_width, screen_height, depth)
+    return blocks
+
+
+def draw_fractal_transition(screen, screen_size, current_image, next_image, alpha, transition_cache):
+    if 'fractal_blocks' not in transition_cache:
+        transition_cache['fractal_blocks'] = generate_fractal_blocks(screen_size, depth=5)
+    blocks = transition_cache['fractal_blocks']
+    total_blocks = len(blocks)
+    revealed_count = int(total_blocks * alpha)
+    if current_image:
+        screen.blit(current_image, current_image.get_rect(center=(screen_size[0] // 2, screen_size[1] // 2)))
+    if next_image:
+        for i in range(revealed_count):
+            x, y, w, h = blocks[i]
+            sx = x - (screen_size[0] - next_image.get_width()) // 2
+            sy = y - (screen_size[1] - next_image.get_height()) // 2
+            if sx < 0 or sy < 0 or sx + w > next_image.get_width() or sy + h > next_image.get_height():
+                continue
+            block_surf = next_image.subsurface((sx, sy, w, h))
+            screen.blit(block_surf, (x, y))
+
+
+def draw_circle_transition(screen, screen_size, current_image, next_image, alpha, transition_cache):
+    w_center, h_center = screen_size[0] // 2, screen_size[1] // 2
+    if current_image:
+        temp_current = current_image.copy()
+        temp_current.set_alpha(int(255 * (1.0 - alpha)))
+        screen.blit(temp_current, temp_current.get_rect(center=(w_center, h_center)))
+    if next_image:
+        next_copy = next_image.copy()
+        mask = pygame.Surface(next_image.get_size(), pygame.SRCALPHA)
+        mask.fill((0, 0, 0, 0))
+        radius_max = max(next_image.get_width(), next_image.get_height()) // 2
+        radius = int(radius_max * alpha)
+        pygame.draw.circle(mask, (255, 255, 255, 255), (next_image.get_width() // 2, next_image.get_height() // 2), radius)
+        next_copy.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        next_copy.set_alpha(int(255 * alpha))
+        screen.blit(next_copy, next_copy.get_rect(center=(w_center, h_center)))
+
+
+def draw_balls_transition(screen, screen_size, current_image, next_image, alpha, transition_cache):
+    w_center, h_center = screen_size[0] // 2, screen_size[1] // 2
+    if current_image:
+        temp_current = current_image.copy()
+        temp_current.set_alpha(int(255 * (1.0 - alpha)))
+        screen.blit(temp_current, temp_current.get_rect(center=(w_center, h_center)))
+    if next_image:
+        if 'balls' not in transition_cache:
+            img_w, img_h = next_image.get_width(), next_image.get_height()
+            num_circles = max(10, (img_w * img_h) // (200 * 200))
+            circles = []
+            for _ in range(num_circles):
+                x = random.randint(0, img_w)
+                y = random.randint(0, img_h)
+                max_r = random.randint(min(img_w, img_h) // 10, min(img_w, img_h) // 4)
+                circles.append((x, y, max_r))
+            transition_cache['balls'] = circles
+        circles = transition_cache['balls']
+        mask = pygame.Surface(next_image.get_size(), pygame.SRCALPHA)
+        mask.fill((0, 0, 0, 0))
+        for (cx, cy, max_r) in circles:
+            radius = int(max_r * alpha)
+            if radius > 0:
+                pygame.draw.circle(mask, (255, 255, 255, 255), (cx, cy), radius)
+        next_copy = next_image.copy()
+        next_copy.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        next_copy.set_alpha(int(255 * alpha))
+        screen.blit(next_copy, next_copy.get_rect(center=(w_center, h_center)))
+
+
+def draw_domino_transition(screen, screen_size, current_image, next_image, alpha, transition_cache):
+    screen_width, screen_height = screen_size
+    w_center, h_center = screen_width // 2, screen_height // 2
+    if current_image:
+        temp_current = current_image.copy()
+        temp_current.set_alpha(int(255 * (1.0 - alpha)))
+        screen.blit(temp_current, temp_current.get_rect(center=(w_center, h_center)))
+    if next_image:
+        slices = 10
+        slice_width = max(1, next_image.get_width() // slices)
+        for i in range(slices):
+            delay = i * (1.0 / slices)
+            local = (alpha - delay) * slices
+            if local <= 0:
+                continue
+            if local > 1:
+                local = 1
+            offset_y = int((1 - local) * screen_height)
+            x = w_center - next_image.get_width() // 2 + i * slice_width
+            if i < slices - 1:
+                w = slice_width
+            else:
+                w = next_image.get_width() - slice_width * i
+            subsurf = next_image.subsurface((i * slice_width, 0, w, next_image.get_height()))
+            subsurf_copy = subsurf.copy()
+            subsurf_copy.set_alpha(int(255 * alpha))
+            y = h_center - next_image.get_height() // 2 + offset_y
+            screen.blit(subsurf_copy, (x, y))
+
+
+def draw_dice_transition(screen, screen_size, current_image, next_image, alpha, transition_cache):
+    screen_width, screen_height = screen_size
+    w_center, h_center = screen_width // 2, screen_height // 2
+    if current_image:
+        temp_current = current_image.copy()
+        temp_current.set_alpha(int(255 * (1.0 - alpha)))
+        screen.blit(temp_current, temp_current.get_rect(center=(w_center, h_center)))
+    if next_image:
+        grid_rows = 3
+        grid_cols = 3
+        total_cells = grid_rows * grid_cols
+        cells_to_reveal = int(total_cells * alpha)
+        cell_w = next_image.get_width() // grid_cols
+        cell_h = next_image.get_height() // grid_rows
+        if 'dice_order' not in transition_cache:
+            cells = list(range(total_cells))
+            random.shuffle(cells)
+            transition_cache['dice_order'] = cells
+        order = transition_cache['dice_order']
+        for idx in range(cells_to_reveal):
+            cell = order[idx]
+            row = cell // grid_cols
+            col = cell % grid_cols
+            x_src = col * cell_w
+            y_src = row * cell_h
+            if col < grid_cols - 1:
+                w = cell_w
+            else:
+                w = next_image.get_width() - cell_w * col
+            if row < grid_rows - 1:
+                h = cell_h
+            else:
+                h = next_image.get_height() - cell_h * row
+            cell_surf = next_image.subsurface((x_src, y_src, w, h))
+            cell_surf_copy = cell_surf.copy()
+            cell_surf_copy.set_alpha(int(255 * alpha))
+            x_dst = w_center - next_image.get_width() // 2 + x_src
+            y_dst = h_center - next_image.get_height() // 2 + y_src
+            screen.blit(cell_surf_copy, (x_dst, y_dst))
+
 
 def draw_transition(screen, screen_size, current_image, next_image, alpha, effect, transition_cache):
     screen.fill((0, 0, 0))
-    if effect == 'Fade':
+    try:
+        if effect == 'Fade':
+            if current_image:
+                temp_current = current_image.copy()
+                temp_current.set_alpha(int(255 * (1 - alpha)))
+                screen.blit(temp_current, temp_current.get_rect(center=(screen_size[0] // 2, screen_size[1] // 2)))
+            if next_image:
+                temp_next = next_image.copy()
+                temp_next.set_alpha(int(255 * alpha))
+                screen.blit(temp_next, temp_next.get_rect(center=(screen_size[0] // 2, screen_size[1] // 2)))
+        elif effect == 'Dissolve':
+            if 'blocks' not in transition_cache:
+                transition_cache['blocks'] = generate_dissolve_blocks(screen_size, block_size=20)
+            blocks = transition_cache['blocks']
+            total_blocks = len(blocks)
+            revealed_count = int(total_blocks * alpha)
+            if current_image:
+                screen.blit(current_image, current_image.get_rect(center=(screen_size[0] // 2, screen_size[1] // 2)))
+            if next_image:
+                for i in range(revealed_count):
+                    x, y, w, h = blocks[i]
+                    sx = x - (screen_size[0] - next_image.get_width()) // 2
+                    sy = y - (screen_size[1] - next_image.get_height()) // 2
+                    if sx < 0 or sy < 0 or sx + w > next_image.get_width() or sy + h > next_image.get_height():
+                        continue
+                    block_surf = next_image.subsurface((sx, sy, w, h))
+                    screen.blit(block_surf, (x, y))
+        elif effect == 'Paint':
+            draw_paint_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
+        elif effect == 'Roll':
+            draw_roll_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
+        elif effect == 'Zoom':
+            draw_zoom_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
+        elif effect == 'Flip':
+            draw_flip_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
+        elif effect == 'Cube':
+            draw_cube_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
+        elif effect == 'Spin':
+            draw_spin_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
+        elif effect == 'Fractal':
+            draw_fractal_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
+        elif effect == 'Pixelate':
+            draw_pixelate_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
+        elif effect == 'Diagonal':
+            draw_diagonal_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
+        elif effect == 'CubeTR':
+            draw_cube_tr_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
+        elif effect == 'CubeBL':
+            draw_cube_bl_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
+        elif effect == 'CubeBR':
+            draw_cube_br_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
+        elif effect == 'Circle':
+            draw_circle_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
+        elif effect == 'Domino':
+            draw_domino_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
+        elif effect == 'Dice':
+            draw_dice_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
+        elif effect == 'Balls':
+            draw_balls_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
+        else:
+            if current_image:
+                temp_current = current_image.copy()
+                temp_current.set_alpha(int(255 * (1 - alpha)))
+                screen.blit(temp_current, temp_current.get_rect(center=(screen_size[0] // 2, screen_size[1] // 2)))
+            if next_image:
+                temp_next = next_image.copy()
+                temp_next.set_alpha(int(255 * alpha))
+                screen.blit(temp_next, temp_next.get_rect(center=(screen_size[0] // 2, screen_size[1] // 2)))
+    except Exception:
         if current_image:
             temp_current = current_image.copy()
             temp_current.set_alpha(int(255 * (1 - alpha)))
-            screen.blit(temp_current,  temp_current.get_rect(center=(screen_size[0]//2, screen_size[1]//2)))
+            screen.blit(temp_current, temp_current.get_rect(center=(screen_size[0] // 2, screen_size[1] // 2)))
         if next_image:
             temp_next = next_image.copy()
             temp_next.set_alpha(int(255 * alpha))
-            screen.blit(temp_next, temp_next.get_rect(center=(screen_size[0]//2,  screen_size[1]//2)))
-    elif effect == 'Dissolve':
-        if 'blocks' not in transition_cache:
-            transition_cache['blocks'] = generate_dissolve_blocks(screen_size,  block_size=20)
-        blocks = transition_cache['blocks']
-        total_blocks = len(blocks)
-        revealed_count = int(total_blocks * alpha)
-        if current_image:
-            screen.blit(current_image,  current_image.get_rect(center=(screen_size[0]//2, screen_size[1]//2)))
-        if next_image:
-            for i in range(revealed_count):
-                x, y, w, h = blocks[i]
-                sx = x - (screen_size[0] - next_image.get_width())//2
-                sy = y - (screen_size[1] - next_image.get_height())//2
-                if sx < 0 or sy < 0 or sx + w > next_image.get_width() or sy + h  > next_image.get_height():
-                    continue
-                block_surf = next_image.subsurface((sx, sy, w, h))
-                screen.blit(block_surf, (x, y))
-    elif effect == 'Paint':
-        draw_paint_transition(screen, screen_size, current_image, next_image,  alpha, transition_cache)
-    elif effect == 'Roll':
-        draw_roll_transition(screen, screen_size, current_image, next_image,  alpha, transition_cache)
+            screen.blit(temp_next, temp_next.get_rect(center=(screen_size[0] // 2, screen_size[1] // 2)))
     pygame.display.flip()
 
-def init_starfield(num_stars, screen_size):
+
+def init_starfield(num_stars: int, screen_size):
     screen_width, screen_height = screen_size
     center_x = screen_width // 2
     center_y = screen_height // 2
@@ -353,6 +688,7 @@ def init_starfield(num_stars, screen_size):
         stars.append([x, y, speed, center_x, center_y])
     return stars
 
+
 def update_and_draw_starfield(screen, stars, screen_size):
     screen_width, screen_height = screen_size
     center_x = screen_width // 2
@@ -360,23 +696,24 @@ def update_and_draw_starfield(screen, stars, screen_size):
     for star in stars:
         dx = star[0] - star[3]
         dy = star[1] - star[4]
-        dist = (dx*dx + dy*dy)**0.5
+        dist = (dx * dx + dy * dy) ** 0.5
         factor = star[2] / (dist + 0.001)
         star[0] += dx * factor
         star[1] += dy * factor
-        if star[0] < 0 or star[0] >= screen_width or star[1] < 0 or star[1] >=  screen_height:
+        if star[0] < 0 or star[0] >= screen_width or star[1] < 0 or star[1] >= screen_height:
             r = random.uniform(10, 50)
-            star[0] = center_x + r*(random.random()-0.5)
-            star[1] = center_y + r*(random.random()-0.5)
+            star[0] = center_x + r * (random.random() - 0.5)
+            star[1] = center_y + r * (random.random() - 0.5)
             star[2] = random.uniform(0.5, 2.0)
         screen.set_at((int(star[0]), int(star[1])), (255, 255, 255))
+
 
 def run_viewer():
     global selected_directory, use_protocol, initialize_all, initialize_all_minus10, initialize_all_minus75
     global ignore_protocol, loop_mode, yoyo_mode, close_viewer_on_left_click
     global selected_effect, check_interval_var, transition_duration_var
     global waiting_for_new_images_message, any_image_displayed, show_starfield
-    global ignore_transition_effect
+    global ignore_transition_effect, shuffle_mode
 
     any_image_displayed = False
     protocol_path = os.path.join(selected_directory, PROTOCOL_FILE)
@@ -387,9 +724,8 @@ def run_viewer():
         actual_use_protocol,
         initialize_all,
         initialize_all_minus10,
-        initialize_all_minus75
+        initialize_all_minus75,
     )
-
     pygame.init()
     infoObject = pygame.display.Info()
     screen_size = (infoObject.current_w, infoObject.current_h)
@@ -399,7 +735,6 @@ def run_viewer():
     stars = None
     if show_starfield:
         stars = init_starfield(200, screen_size)
-
     if ignore_protocol and (loop_mode or yoyo_mode):
         current_image = None
         next_image = None
@@ -409,11 +744,10 @@ def run_viewer():
         last_check_time = 0
         image_list = []
         current_index = -1
+        direction = 1
 
         def load_image_list():
             return get_image_files(selected_directory)
-
-        direction = 1
 
         def get_next_image_loop():
             nonlocal image_list, current_index
@@ -448,30 +782,25 @@ def run_viewer():
             next_image = get_next_image_yoyo()
         else:
             next_image = get_next_image_loop()
-
         if next_image:
             transition_start_time = time.time()
             transition_cache.clear()
             transition_cache['effect'] = choose_effect(selected_effect)
         else:
             any_image_displayed = False
-
         while running:
             current_time = time.time()
             for event in pygame.event.get():
                 if event.type == QUIT:
                     running = False
-                elif event.type == KEYDOWN:
-                    if event.key == K_ESCAPE:
-                        running = False
+                elif event.type == KEYDOWN and event.key == K_ESCAPE:
+                    running = False
                 elif event.type == MOUSEBUTTONDOWN:
                     if close_viewer_on_left_click and event.button == 1:
                         running = False
             if current_time - last_check_time >= check_interval_var:
                 last_check_time = current_time
-
             effective_td = 0 if ignore_transition_effect else transition_duration_var
-
             if transition_start_time:
                 elapsed = current_time - transition_start_time
                 if elapsed < effective_td:
@@ -500,7 +829,7 @@ def run_viewer():
                         transition_cache['effect'] = choose_effect(selected_effect)
                 else:
                     screen.fill((0, 0, 0))
-                    screen.blit(current_image,  current_image.get_rect(center=(screen_size[0]//2, screen_size[1]//2)))
+                    screen.blit(current_image, current_image.get_rect(center=(screen_size[0] // 2, screen_size[1] // 2)))
                     pygame.display.flip()
                     if yoyo_mode:
                         next_image = get_next_image_yoyo()
@@ -511,14 +840,12 @@ def run_viewer():
                         transition_cache.clear()
                         transition_cache['effect'] = choose_effect(selected_effect)
             clock.tick(60)
-
         if current_image:
             del current_image
         if next_image:
             del next_image
         pygame.quit()
         return
-
     current_image = None
     next_image = None
     transition_start_time = None
@@ -526,27 +853,22 @@ def run_viewer():
     running = True
     last_check_time = 0
     chosen_effect = selected_effect
-
     while running:
         current_time = time.time()
         for event in pygame.event.get():
             if event.type == QUIT:
                 running = False
-            elif event.type == KEYDOWN:
-                if event.key == K_ESCAPE:
-                    running = False
+            elif event.type == KEYDOWN and event.key == K_ESCAPE:
+                running = False
             elif event.type == MOUSEBUTTONDOWN:
                 if close_viewer_on_left_click and event.button == 1:
                     running = False
-
         if current_time - last_check_time >= check_interval_var:
             last_check_time = current_time
             image_files = get_image_files(selected_directory)
-            new_image_found = False
             for image_file in image_files:
                 if image_file not in displayed_images:
                     loaded_image = load_and_scale_image(image_file, screen_size)
-
                     if loaded_image:
                         next_image = loaded_image
                         chosen_effect = choose_effect(selected_effect)
@@ -556,11 +878,8 @@ def run_viewer():
                         transition_start_time = current_time
                         transition_cache.clear()
                         transition_cache['effect'] = chosen_effect
-                        new_image_found = True
                         break
-
         effective_td = 0 if ignore_transition_effect else transition_duration_var
-
         if transition_start_time:
             elapsed = current_time - transition_start_time
             if elapsed < effective_td:
@@ -580,7 +899,7 @@ def run_viewer():
         else:
             if current_image:
                 screen.fill((0, 0, 0))
-                screen.blit(current_image,  current_image.get_rect(center=(screen_size[0]//2, screen_size[1]//2)))
+                screen.blit(current_image, current_image.get_rect(center=(screen_size[0] // 2, screen_size[1] // 2)))
                 pygame.display.flip()
             else:
                 if waiting_for_new_images_message and not any_image_displayed:
@@ -589,22 +908,22 @@ def run_viewer():
                         update_and_draw_starfield(screen, stars, screen_size)
                     font = pygame.font.SysFont(None, 50)
                     text = font.render("Waiting for new images...", True, (255, 255, 255))
-                    rect = text.get_rect(center=(screen_size[0]//2, screen_size[1]//2))
+                    rect = text.get_rect(center=(screen_size[0] // 2, screen_size[1] // 2))
                     screen.blit(text, rect)
                     pygame.display.flip()
-
         clock.tick(60)
-
     if current_image:
         del current_image
     if next_image:
         del next_image
     pygame.quit()
 
+
 def start_viewer_from_gui(root):
     root.withdraw()
     run_viewer()
     root.deiconify()
+
 
 def select_directory():
     global selected_directory
@@ -614,9 +933,10 @@ def select_directory():
         with open(VIEWPATH_FILE, 'w', encoding='utf-8') as f:
             f.write(selected_directory)
 
-def create_tooltip(widget, text):
+
+def create_tooltip(widget, text: str):
     tipwindow = None
-    def show_tip(event):
+    def show_tip(_event):
         nonlocal tipwindow
         if tipwindow or not text:
             return
@@ -628,10 +948,10 @@ def create_tooltip(widget, text):
         tipwindow = tw = tk.Toplevel(widget)
         tw.wm_overrideredirect(True)
         tw.wm_geometry(f"+{x}+{y}")
-        label = tk.Label(tw, text=text, justify=tk.LEFT, background="#ffffe0",  relief=tk.SOLID,
-                         borderwidth=1, font=("tahoma", "8", "normal"))
+        label = tk.Label(tw, text=text, justify=tk.LEFT, background="#ffffe0", relief=tk.SOLID,
+                          borderwidth=1, font=("tahoma", "8", "normal"))
         label.pack(ipadx=1)
-    def hide_tip(event):
+    def hide_tip(_event):
         nonlocal tipwindow
         if tipwindow:
             tipwindow.destroy()
@@ -639,36 +959,31 @@ def create_tooltip(widget, text):
     widget.bind("<Enter>", show_tip)
     widget.bind("<Leave>", hide_tip)
 
-def build_gui(noclick_forced_off):
+
+def build_gui(noclick_forced_off: bool):
     global selected_directory, ignore_protocol, loop_mode, yoyo_mode
     global initialize_all, initialize_all_minus10, initialize_all_minus75
     global close_viewer_on_left_click, selected_effect
     global check_interval_var, transition_duration_var, show_starfield
-    global ignore_transition_effect
-
+    global ignore_transition_effect, shuffle_mode
     root = tk.Tk()
     root.title("TimedViewer Configuration")
-    root.geometry("580x500")
+    root.geometry("640x590")
     root.resizable(False, False)
-
     main_frame = tk.Frame(root)
     main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
     main_frame.grid_columnconfigure(0, weight=1, uniform="cols")
     main_frame.grid_columnconfigure(1, weight=1, uniform="cols")
-
     left_frame = tk.Frame(main_frame)
     right_frame = tk.Frame(main_frame)
     left_frame.grid(row=0, column=0, sticky="nw", padx=(0, 10), pady=10)
     right_frame.grid(row=0, column=1, sticky="ne", padx=(10, 0), pady=10)
-
     bottom_frame = tk.Frame(root)
     bottom_frame.pack(side=tk.BOTTOM, pady=5)
-
     dir_label = tk.Label(left_frame, text="Select directory:")
     dir_label.grid(row=0, column=0, sticky="w", pady=(0, 5))
     dir_button = tk.Button(left_frame, text="Browse...", command=select_directory)
     dir_button.grid(row=1, column=0, sticky="w", pady=(0, 5))
-
     selected_dir_var = tk.StringVar(value=selected_directory)
     def update_selected_dir():
         selected_dir_var.set(selected_directory)
@@ -676,7 +991,6 @@ def build_gui(noclick_forced_off):
     update_selected_dir()
     selected_dir_label = tk.Label(left_frame, textvariable=selected_dir_var, wraplength=250)
     selected_dir_label.grid(row=2, column=0, sticky="w", pady=(0, 5))
-
     def open_in_file_manager():
         if platform.system() == "Windows":
             os.startfile(selected_directory)
@@ -684,39 +998,34 @@ def build_gui(noclick_forced_off):
             subprocess.Popen(["open", selected_directory])
         else:
             subprocess.Popen(["xdg-open", selected_directory])
-
     open_dir_button = tk.Button(left_frame, text="Open in Filemanager", command=open_in_file_manager)
     open_dir_button.grid(row=3, column=0, sticky="w", pady=(0, 15))
-
     interval_label = tk.Label(left_frame, text="Check Interval (sec):")
     interval_label.grid(row=4, column=0, sticky="w", pady=(0, 5))
     interval_entry = tk.Entry(left_frame, width=10)
     interval_entry.insert(0, str(check_interval_var))
     interval_entry.grid(row=5, column=0, sticky="w", pady=(0, 15))
-
     transition_label = tk.Label(left_frame, text="Transition Duration (sec):")
     transition_label.grid(row=6, column=0, sticky="w", pady=(0, 5))
     transition_entry = tk.Entry(left_frame, width=10)
     transition_entry.insert(0, str(transition_duration_var))
     transition_entry.grid(row=7, column=0, sticky="w")
-    interval_entry.bind("<KeyRelease>", lambda e: preset_var.set("none"))
-    transition_entry.bind("<KeyRelease>", lambda e: preset_var.set("none"))
-
+    interval_entry.bind("<KeyRelease>", lambda _e: preset_var.set("none"))
+    transition_entry.bind("<KeyRelease>", lambda _e: preset_var.set("none"))
     preset_frame = tk.Frame(left_frame)
     preset_frame.grid(row=8, column=0, sticky="w", pady=(25, 5))
     preset_label = tk.Label(preset_frame, text="Presets:")
     preset_label.pack(side=tk.TOP, anchor="w")
     preset_value = "default" if check_interval_var == CHECK_INTERVAL and transition_duration_var == TRANSITION_DURATION else "none"
     preset_var = tk.StringVar(value=preset_value)
-
     def apply_preset():
+        previous_effect = effect_var.get()
         p = preset_var.get()
         if p == "default":
             interval_entry.delete(0, tk.END)
-            interval_entry.insert(0, "3")
+            interval_entry.insert(0, str(CHECK_INTERVAL))
             transition_entry.delete(0, tk.END)
-            transition_entry.insert(0, "3")
-            effect_var.set("Fade")
+            transition_entry.insert(0, str(TRANSITION_DURATION))
             noprotocol_var.set(False)
             loop_var.set(False)
             yoyo_var.set(False)
@@ -726,12 +1035,13 @@ def build_gui(noclick_forced_off):
             closeleft_var.set(True and not noclick_forced_off)
             starfield_var.set(True)
             ignore_transition_effect_var.set(False)
+            shuffle_var.set(False)
+            effect_var.set(previous_effect)
         elif p == "slideshow":
             interval_entry.delete(0, tk.END)
             interval_entry.insert(0, "4")
             transition_entry.delete(0, tk.END)
             transition_entry.insert(0, "1")
-            effect_var.set("Fade")
             noprotocol_var.set(False)
             loop_var.set(False)
             yoyo_var.set(False)
@@ -741,12 +1051,13 @@ def build_gui(noclick_forced_off):
             closeleft_var.set(True and not noclick_forced_off)
             starfield_var.set(True)
             ignore_transition_effect_var.set(False)
+            shuffle_var.set(False)
+            effect_var.set(previous_effect)
         elif p == "sd_fum":
             interval_entry.delete(0, tk.END)
             interval_entry.insert(0, "3")
             transition_entry.delete(0, tk.END)
             transition_entry.insert(0, "0.04")
-            effect_var.set("Random")
             noprotocol_var.set(True)
             loop_var.set(True)
             yoyo_var.set(False)
@@ -756,66 +1067,168 @@ def build_gui(noclick_forced_off):
             closeleft_var.set(True and not noclick_forced_off)
             starfield_var.set(False)
             ignore_transition_effect_var.set(False)
-
+            shuffle_var.set(False)
+            effect_var.set(previous_effect)
+        elif p == "fast":
+            interval_entry.delete(0, tk.END)
+            interval_entry.insert(0, "2")
+            transition_entry.delete(0, tk.END)
+            transition_entry.insert(0, "0.5")
+            noprotocol_var.set(False)
+            loop_var.set(False)
+            yoyo_var.set(False)
+            allprotocol_var.set(False)
+            allprotocolminus10_var.set(False)
+            allprotocolminus75_var.set(False)
+            closeleft_var.set(True and not noclick_forced_off)
+            starfield_var.set(True)
+            ignore_transition_effect_var.set(False)
+            shuffle_var.set(False)
+            effect_var.set(previous_effect)
+        elif p == "domino_show":
+            interval_entry.delete(0, tk.END)
+            interval_entry.insert(0, "3")
+            transition_entry.delete(0, tk.END)
+            transition_entry.insert(0, "0.6")
+            noprotocol_var.set(True)
+            loop_var.set(True)
+            yoyo_var.set(False)
+            allprotocol_var.set(False)
+            allprotocolminus10_var.set(False)
+            allprotocolminus75_var.set(False)
+            closeleft_var.set(True and not noclick_forced_off)
+            starfield_var.set(False)
+            ignore_transition_effect_var.set(False)
+            shuffle_var.set(False)
+            effect_var.set("Domino")
+        elif p == "circle_show":
+            interval_entry.delete(0, tk.END)
+            interval_entry.insert(0, "3")
+            transition_entry.delete(0, tk.END)
+            transition_entry.insert(0, "1")
+            noprotocol_var.set(True)
+            loop_var.set(True)
+            yoyo_var.set(False)
+            allprotocol_var.set(False)
+            allprotocolminus10_var.set(False)
+            allprotocolminus75_var.set(False)
+            closeleft_var.set(True and not noclick_forced_off)
+            starfield_var.set(False)
+            ignore_transition_effect_var.set(False)
+            shuffle_var.set(False)
+            effect_var.set("Circle")
+        elif p == "dice_show":
+            interval_entry.delete(0, tk.END)
+            interval_entry.insert(0, "3")
+            transition_entry.delete(0, tk.END)
+            transition_entry.insert(0, "0.8")
+            noprotocol_var.set(True)
+            loop_var.set(True)
+            yoyo_var.set(False)
+            allprotocol_var.set(False)
+            allprotocolminus10_var.set(False)
+            allprotocolminus75_var.set(False)
+            closeleft_var.set(True and not noclick_forced_off)
+            starfield_var.set(False)
+            ignore_transition_effect_var.set(False)
+            shuffle_var.set(False)
+            effect_var.set("Dice")
+        elif p == "balls_show":
+            interval_entry.delete(0, tk.END)
+            interval_entry.insert(0, "3")
+            transition_entry.delete(0, tk.END)
+            transition_entry.insert(0, "1")
+            noprotocol_var.set(True)
+            loop_var.set(True)
+            yoyo_var.set(False)
+            allprotocol_var.set(False)
+            allprotocolminus10_var.set(False)
+            allprotocolminus75_var.set(False)
+            closeleft_var.set(True and not noclick_forced_off)
+            starfield_var.set(False)
+            ignore_transition_effect_var.set(False)
+            shuffle_var.set(False)
+            effect_var.set("Balls")
     preset_default = tk.Radiobutton(preset_frame, text="default values", variable=preset_var, value="default", command=apply_preset)
     preset_slideshow = tk.Radiobutton(preset_frame, text="Slideshow", variable=preset_var, value="slideshow", command=apply_preset)
     preset_sd_fum = tk.Radiobutton(preset_frame, text="SD-FUM animation", variable=preset_var, value="sd_fum", command=apply_preset)
+    preset_fast = tk.Radiobutton(preset_frame, text="Fast slideshow", variable=preset_var, value="fast", command=apply_preset)
+    preset_domino = tk.Radiobutton(preset_frame, text="Domino show", variable=preset_var, value="domino_show", command=apply_preset)
+    preset_circle = tk.Radiobutton(preset_frame, text="Circle show", variable=preset_var, value="circle_show", command=apply_preset)
+    preset_dice = tk.Radiobutton(preset_frame, text="Dice show", variable=preset_var, value="dice_show", command=apply_preset)
+    preset_balls = tk.Radiobutton(preset_frame, text="Balls show", variable=preset_var, value="balls_show", command=apply_preset)
     preset_default.pack(side=tk.TOP, anchor="w")
     preset_slideshow.pack(side=tk.TOP, anchor="w")
     preset_sd_fum.pack(side=tk.TOP, anchor="w")
-
+    preset_fast.pack(side=tk.TOP, anchor="w")
+    preset_domino.pack(side=tk.TOP, anchor="w")
+    preset_circle.pack(side=tk.TOP, anchor="w")
+    preset_dice.pack(side=tk.TOP, anchor="w")
+    preset_balls.pack(side=tk.TOP, anchor="w")
     effect_label = tk.Label(right_frame, text="Transition Effect:")
     effect_label.grid(row=0, column=0, sticky="w", pady=(0, 5))
     effect_var = tk.StringVar(value=selected_effect)
-    effect_options = ["Fade", "Dissolve", "Paint", "Roll", "Random"]
+    effect_options = [
+        "Fade",
+        "Dissolve",
+        "Paint",
+        "Roll",
+        "Zoom",
+        "Flip",
+        "Cube",
+        "CubeTR",
+        "CubeBL",
+        "CubeBR",
+        "Spin",
+        "Fractal",
+        "Pixelate",
+        "Diagonal",
+        "Circle",
+        "Domino",
+        "Dice",
+        "Balls",
+        "Random",
+    ]
     if selected_effect not in effect_options:
         selected_effect = "Fade"
     effect_dropdown = ttk.Combobox(right_frame, textvariable=effect_var, values=effect_options, state='readonly', width=15)
     effect_dropdown.set(selected_effect)
     effect_dropdown.grid(row=1, column=0, sticky="w", pady=(0, 5))
-
     noprotocol_var = tk.BooleanVar(value=ignore_protocol)
     noprotocol_check = tk.Checkbutton(right_frame, text="Ignore protocol", variable=noprotocol_var)
     noprotocol_check.grid(row=2, column=0, sticky="w", pady=(0, 5))
-
     loop_var = tk.BooleanVar(value=loop_mode)
     loop_check = tk.Checkbutton(right_frame, text="Loop images", variable=loop_var)
     loop_check.grid(row=3, column=0, sticky="w", pady=(0, 5))
-
     yoyo_var = tk.BooleanVar(value=yoyo_mode)
-    yoyo_check = tk.Checkbutton(right_frame, text="Yo-Yo images", variable=yoyo_var)
+    yoyo_check = tk.Checkbutton(right_frame, text="Yo–Yo images", variable=yoyo_var)
     yoyo_check.grid(row=4, column=0, sticky="w", pady=(0, 5))
-
     ignore_transition_effect_var = tk.BooleanVar(value=False)
     ignore_transition_effect_check = tk.Checkbutton(right_frame, text="Ignore transition effect", variable=ignore_transition_effect_var)
     ignore_transition_effect_check.grid(row=5, column=0, sticky="w", pady=(0, 5))
-
     allprotocol_var = tk.BooleanVar(value=initialize_all)
     allprotocol_check = tk.Checkbutton(right_frame, text="Use allprotocol", variable=allprotocol_var)
     allprotocol_check.grid(row=6, column=0, sticky="w", pady=(0, 5))
-
     allprotocolminus10_var = tk.BooleanVar(value=initialize_all_minus10)
     allprotocolminus10_check = tk.Checkbutton(right_frame, text="Use allprotocol (-10)", variable=allprotocolminus10_var)
     allprotocolminus10_check.grid(row=7, column=0, sticky="w", pady=(0, 5))
-
     allprotocolminus75_var = tk.BooleanVar(value=initialize_all_minus75)
     allprotocolminus75_check = tk.Checkbutton(right_frame, text="Use allprotocol (-75)", variable=allprotocolminus75_var)
     allprotocolminus75_check.grid(row=8, column=0, sticky="w", pady=(0, 5))
-
     closeleft_var = tk.BooleanVar(value=close_viewer_on_left_click and not noclick_forced_off)
     closeleft_check = tk.Checkbutton(right_frame, text="Close viewer with left click", variable=closeleft_var)
     closeleft_check.grid(row=9, column=0, sticky="w", pady=(0, 5))
     if noclick_forced_off:
         closeleft_check.config(state=tk.DISABLED)
-
     starfield_var = tk.BooleanVar(value=show_starfield)
     starfield_check = tk.Checkbutton(right_frame, text="Starfield background", variable=starfield_var)
     starfield_check.grid(row=10, column=0, sticky="w", pady=(0, 5))
-
+    shuffle_var = tk.BooleanVar(value=shuffle_mode)
+    shuffle_check = tk.Checkbutton(right_frame, text="Shuffle images", variable=shuffle_var)
+    shuffle_check.grid(row=11, column=0, sticky="w", pady=(0, 5))
     delete_button = tk.Button(right_frame, text="Delete Protocol", command=lambda: delete_protocol(os.path.join(selected_directory, PROTOCOL_FILE)))
-    delete_button.grid(row=11, column=0, sticky="w", pady=(0, 5))
-
-    def handle_allprotocol_toggle(*args):
+    delete_button.grid(row=12, column=0, sticky="w", pady=(0, 5))
+    def handle_allprotocol_toggle(*_args):
         if allprotocol_var.get():
             allprotocolminus10_var.set(False)
             allprotocolminus75_var.set(False)
@@ -824,8 +1237,7 @@ def build_gui(noclick_forced_off):
         else:
             allprotocolminus10_check.config(state="normal")
             allprotocolminus75_check.config(state="normal")
-
-    def handle_allprotocolminus10_toggle(*args):
+    def handle_allprotocolminus10_toggle(*_args):
         if allprotocolminus10_var.get():
             allprotocol_var.set(False)
             allprotocol_check.config(state="disabled")
@@ -834,8 +1246,7 @@ def build_gui(noclick_forced_off):
         else:
             allprotocol_check.config(state="normal")
             allprotocolminus75_check.config(state="normal")
-
-    def handle_allprotocolminus75_toggle(*args):
+    def handle_allprotocolminus75_toggle(*_args):
         if allprotocolminus75_var.get():
             allprotocol_var.set(False)
             allprotocol_check.config(state="disabled")
@@ -844,15 +1255,13 @@ def build_gui(noclick_forced_off):
         else:
             allprotocol_check.config(state="normal")
             allprotocolminus10_check.config(state="normal")
-
     allprotocol_var.trace_add('write', handle_allprotocol_toggle)
     allprotocolminus10_var.trace_add('write', handle_allprotocolminus10_toggle)
     allprotocolminus75_var.trace_add('write', handle_allprotocolminus75_toggle)
     handle_allprotocol_toggle()
     handle_allprotocolminus10_toggle()
     handle_allprotocolminus75_toggle()
-
-    def handle_noprotocol_toggle(*args):
+    def handle_noprotocol_toggle(*_args):
         if noprotocol_var.get():
             loop_check.config(state="normal")
             yoyo_check.config(state="normal")
@@ -863,43 +1272,36 @@ def build_gui(noclick_forced_off):
             yoyo_check.config(state="disabled")
             ignore_transition_effect_var.set(False)
             ignore_transition_effect_check.config(state="disabled")
-
     noprotocol_var.trace_add('write', handle_noprotocol_toggle)
     handle_noprotocol_toggle()
-
-    def handle_loop_toggle(*args):
+    def handle_loop_toggle(*_args):
         if loop_var.get():
             ignore_transition_effect_check.config(state="normal")
         else:
             ignore_transition_effect_var.set(False)
             ignore_transition_effect_check.config(state="disabled")
-
     loop_var.trace_add('write', handle_loop_toggle)
     handle_loop_toggle()
-
     def on_start():
         global selected_directory, ignore_protocol, loop_mode, yoyo_mode
         global initialize_all, initialize_all_minus10, initialize_all_minus75
         global close_viewer_on_left_click, selected_effect
         global check_interval_var, transition_duration_var, show_starfield
-        global ignore_transition_effect
-
+        global ignore_transition_effect, shuffle_mode
         try:
             ci = float(interval_entry.get())
-        except:
+        except Exception:
             ci = CHECK_INTERVAL
             interval_entry.delete(0, tk.END)
             interval_entry.insert(0, str(CHECK_INTERVAL))
         try:
             td = float(transition_entry.get())
-        except:
+        except Exception:
             td = TRANSITION_DURATION
             transition_entry.delete(0, tk.END)
             transition_entry.insert(0, str(TRANSITION_DURATION))
-
         check_interval_var = ci
         transition_duration_var = td
-
         ignore_protocol = noprotocol_var.get()
         loop_mode = loop_var.get()
         yoyo_mode = yoyo_var.get()
@@ -913,12 +1315,10 @@ def build_gui(noclick_forced_off):
         selected_effect = effect_var.get()
         show_starfield = starfield_var.get()
         ignore_transition_effect = ignore_transition_effect_var.get()
-
+        shuffle_mode = shuffle_var.get()
         with open(VIEWPATH_FILE, 'w', encoding='utf-8') as f:
             f.write(selected_directory)
-
         start_viewer_from_gui(root)
-
     start_button = tk.Button(bottom_frame, text="Start", command=on_start, font=("Arial", 14, "bold"))
     start_button.pack()
     create_tooltip(dir_label, "Specify the directory where images will be monitored.")
@@ -928,11 +1328,16 @@ def build_gui(noclick_forced_off):
     create_tooltip(interval_entry, "Enter a numeric value for the check interval.")
     create_tooltip(transition_label, "How long each transition lasts (in seconds).")
     create_tooltip(transition_entry, "Enter a numeric value for the transition duration.")
-    create_tooltip(preset_default, "Reset to default values")
-    create_tooltip(preset_sd_fum, "Monitor progress of animation creation using https://github.com/zeittresor/sd-forge-fum")
+    create_tooltip(preset_default, "Reset to default values.")
+    create_tooltip(preset_sd_fum, "Monitor progress of animation creation using https://github.com/zeittresor/sd-forge-fum.")
     create_tooltip(preset_slideshow, "Switch to slideshow mode (4 s interval, 1 s transition).")
+    create_tooltip(preset_fast, "Fast slideshow: 2 s interval, 0.5 s transition.")
+    create_tooltip(preset_domino, "Domino show: domino effect, loop images.")
+    create_tooltip(preset_circle, "Circle show: circular reveal effect, loop images.")
+    create_tooltip(preset_dice, "Dice show: dice reveal effect, loop images.")
+    create_tooltip(preset_balls, "Balls show: multiple expanding circles reveal the image, loop images.")
     create_tooltip(effect_label, "Select the visual transition effect between images.")
-    create_tooltip(effect_dropdown, "Choose from Fade, Dissolve, Paint, Roll or Random.")
+    create_tooltip(effect_dropdown, "Choose from Fade, Dissolve, Paint, Roll, Zoom or Random.")
     create_tooltip(noprotocol_check, "If checked, previously displayed images are not skipped.")
     create_tooltip(loop_check, "Loop all images endlessly (only if ignoring protocol).")
     create_tooltip(yoyo_check, "Display images forward then backward repeatedly (only if ignoring protocol).")
@@ -940,25 +1345,31 @@ def build_gui(noclick_forced_off):
     create_tooltip(allprotocol_check, "If checked, mark all current images as displayed right away.")
     create_tooltip(allprotocolminus10_check, "Like 'allprotocol', but skip the newest 10 images.")
     create_tooltip(allprotocolminus75_check, "Like 'allprotocol', but skip the newest 75 images.")
-    create_tooltip(closeleft_check, "If enabled, you can close the viewer by left-clicking in fullscreen.")
+    create_tooltip(closeleft_check, "If enabled, you can close the viewer by left‑clicking in fullscreen.")
     create_tooltip(starfield_check, "If enabled, a starfield background is shown while waiting for images.")
+    create_tooltip(shuffle_check, "If enabled, randomise the order of images when looping.")
     create_tooltip(delete_button, "Delete the protocol file (displayed_images.csv) after confirmation.")
     create_tooltip(start_button, "Start the fullscreen viewer with these settings.")
-    create_tooltip(open_dir_button, "Open the selected directory in your filemanager.")
-    root.bind("<Return>", lambda e: on_start())
-
+    create_tooltip(open_dir_button, "Open the selected directory in your file manager.")
+    root.bind("<Return>", lambda _e: on_start())
     return root
+
 
 def hide_console_window():
     if platform.system() == "Windows":
         import ctypes
         ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
 
+
 def main():
+    global selected_directory, use_protocol, ignore_protocol, loop_mode, yoyo_mode
+    global initialize_all, initialize_all_minus10, initialize_all_minus75
+    global check_interval_var, transition_duration_var
+    global close_viewer_on_left_click, show_starfield, selected_effect
+    global shuffle_mode
     args = parse_arguments()
     if args.version:
         display_version_info()
-    global selected_directory
     if os.path.exists(VIEWPATH_FILE):
         try:
             with open(VIEWPATH_FILE, 'r', encoding='utf-8') as f:
@@ -969,28 +1380,19 @@ def main():
                     with open(VIEWPATH_FILE, 'w', encoding='utf-8') as fw:
                         fw.write(os.getcwd())
                     selected_directory = os.getcwd()
-        except:
+        except Exception:
             selected_directory = os.getcwd()
             with open(VIEWPATH_FILE, 'w', encoding='utf-8') as fw:
                 fw.write(selected_directory)
     else:
         with open(VIEWPATH_FILE, 'w', encoding='utf-8') as f:
             f.write(selected_directory)
-
     noclick_forced_off = False
     if args.noclick:
         noclick_forced_off = True
-
-    if not args.nogui and not args.showconsole and platform.system() == "Windows":
-        hide_console_window()
-
-    global use_protocol, ignore_protocol, loop_mode, yoyo_mode
-    global initialize_all, initialize_all_minus10, initialize_all_minus75
-    global check_interval_var, transition_duration_var
-    global close_viewer_on_left_click, show_starfield, selected_effect
-
     use_protocol = not args.noprotocol
     ignore_protocol = args.noprotocol
+    shuffle_mode = args.shuffle
     if args.allprotocolminus75:
         initialize_all_minus75 = True
         initialize_all_minus10 = False
@@ -1003,7 +1405,8 @@ def main():
         initialize_all_minus10 = False
         initialize_all_minus75 = False
         initialize_all = args.allprotocol
-
+    if not args.showconsole and not args.nogui:
+        hide_console_window()
     if args.nogui:
         if noclick_forced_off:
             close_viewer_on_left_click = False
@@ -1014,5 +1417,6 @@ def main():
         gui_root = build_gui(noclick_forced_off)
         gui_root.mainloop()
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     main()
