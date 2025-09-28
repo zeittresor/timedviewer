@@ -49,6 +49,7 @@ Requirements: Make sure you have installed the additional python library
 v3.3 (09/2025)
 - Added Effects
 - More Presets
+- Option to shuffle Images added
 - Bugfixes
 
 v3.2 (04/2025)
