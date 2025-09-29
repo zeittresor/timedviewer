@@ -18,7 +18,7 @@ TRANSITION_DURATION = 3.0
 IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.bmp', '.gif']
 PROTOCOL_FILE = 'displayed_images.csv'
 VERSION_INFO = (
-    "TimedViewer v3.3.0\n"
+    "TimedViewer v3.4.0\n"
     "An enhanced open–source project from https://github.com/zeittresor/timedviewer\n"
     "Licensed under the MIT License."
 )
@@ -1606,3 +1606,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
