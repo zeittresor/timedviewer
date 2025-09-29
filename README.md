@@ -46,7 +46,11 @@ Source: https://github.com/zeittresor/timedviewer
 Requirements: Make sure you have installed the additional python library
 "PyGame" using "pip install pygame". Start the script using "py timedviewer.py".
 
-v3.3 (09/2025)
+v3.4 (29/09/2025)
+- Bugfixes
+- Effects added Pie, Salmi, Puzzle, Wipe
+
+v3.3 (28/09/2025)
 - Added Effects
 - More Presets
 - Option to shuffle Images added
