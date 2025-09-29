@@ -4,6 +4,7 @@ import time
 import csv
 import argparse
 import pygame
+import math
 import random
 import platform
 from pygame.locals import *
@@ -212,6 +213,10 @@ def choose_effect(selected: str):
         "Domino",
         "Dice",
         "Balls",
+        "Pie",
+        "Salmi",
+        "Puzzle",
+        "Wipe",
     ]
     if selected == "Random":
         return random.choice(effects)
@@ -326,7 +331,6 @@ def draw_flip_transition(screen, screen_size, current_image, next_image, alpha, 
             original_w, original_h = current_image.get_width(), current_image.get_height()
             new_w = max(1, int(original_w * (1.0 - frac)))
             scaled = pygame.transform.scale(current_image, (new_w, original_h))
-            scaled = pygame.transform.flip(scaled, True, False)
             scaled.set_alpha(int(255 * (1.0 - frac)))
             screen.blit(scaled, scaled.get_rect(center=(w_center, h_center)))
     else:
@@ -335,8 +339,6 @@ def draw_flip_transition(screen, screen_size, current_image, next_image, alpha, 
             original_w, original_h = next_image.get_width(), next_image.get_height()
             new_w = max(1, int(original_w * frac))
             scaled = pygame.transform.scale(next_image, (new_w, original_h))
-            if new_w < original_w:
-                scaled = pygame.transform.flip(scaled, True, False)
             scaled.set_alpha(int(255 * frac))
             screen.blit(scaled, scaled.get_rect(center=(w_center, h_center)))
 
@@ -457,7 +459,7 @@ def generate_fractal_blocks(screen_size, depth=5):
 
 def draw_fractal_transition(screen, screen_size, current_image, next_image, alpha, transition_cache):
     if 'fractal_blocks' not in transition_cache:
-        transition_cache['fractal_blocks'] = generate_fractal_blocks(screen_size, depth=5)
+        transition_cache['fractal_blocks'] = generate_fractal_blocks(screen_size, depth=6)
     blocks = transition_cache['fractal_blocks']
     total_blocks = len(blocks)
     revealed_count = int(total_blocks * alpha)
@@ -522,6 +524,170 @@ def draw_balls_transition(screen, screen_size, current_image, next_image, alpha,
         screen.blit(next_copy, next_copy.get_rect(center=(w_center, h_center)))
 
 
+def draw_pie_transition(screen, screen_size, current_image, next_image, alpha, transition_cache):
+    w_center, h_center = screen_size[0] // 2, screen_size[1] // 2
+    if current_image:
+        temp_current = current_image.copy()
+        temp_current.set_alpha(int(255 * (1.0 - alpha)))
+        screen.blit(temp_current, temp_current.get_rect(center=(w_center, h_center)))
+    if next_image:
+        if 'pie_slices' not in transition_cache:
+            transition_cache['pie_slices'] = 8
+        slices = transition_cache['pie_slices']
+        progress = alpha * slices
+        mask = pygame.Surface(next_image.get_size(), pygame.SRCALPHA)
+        mask.fill((0, 0, 0, 0))
+        center_x = next_image.get_width() / 2
+        center_y = next_image.get_height() / 2
+        radius = max(next_image.get_width(), next_image.get_height()) / 2
+        for i in range(slices):
+            visible = progress - i
+            if visible <= 0:
+                continue
+            if visible > 1:
+                visible = 1
+            start_angle = (2 * math.pi / slices) * i
+            end_angle = start_angle + (2 * math.pi / slices) * visible
+            points = [(center_x, center_y)]
+            steps = max(int(20 * visible), 1)
+            for j in range(steps + 1):
+                angle = start_angle + (end_angle - start_angle) * (j / steps)
+                x = center_x + radius * math.cos(angle)
+                y = center_y + radius * math.sin(angle)
+                points.append((x, y))
+            pygame.draw.polygon(mask, (255, 255, 255, 255), points)
+        next_copy = next_image.copy()
+        next_copy.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        next_copy.set_alpha(int(255 * alpha))
+        screen.blit(next_copy, next_copy.get_rect(center=(w_center, h_center)))
+
+
+def draw_salmi_transition(screen, screen_size, current_image, next_image, alpha, transition_cache):
+    w_center, h_center = screen_size[0] // 2, screen_size[1] // 2
+    if current_image:
+        temp_current = current_image.copy()
+        temp_current.set_alpha(int(255 * (1.0 - alpha)))
+        screen.blit(temp_current, temp_current.get_rect(center=(w_center, h_center)))
+    if next_image:
+        img_w, img_h = next_image.get_width(), next_image.get_height()
+        if 'salmi_shapes' not in transition_cache:
+            shapes = []
+            count = max(20, (img_w * img_h) // (150 * 150))
+            for _ in range(count):
+                x = random.randint(0, img_w)
+                y = random.randint(0, img_h)
+                w = random.randint(img_w // 20, img_w // 8)
+                h = random.randint(img_h // 20, img_h // 8)
+                angle = random.uniform(0, 360)
+                shapes.append((x, y, w, h, angle))
+            transition_cache['salmi_shapes'] = shapes
+        shapes = transition_cache['salmi_shapes']
+        total = len(shapes)
+        reveal_count = int(total * alpha)
+        mask = pygame.Surface(next_image.get_size(), pygame.SRCALPHA)
+        mask.fill((0, 0, 0, 0))
+        for i in range(reveal_count):
+            cx, cy, w, h, angle = shapes[i]
+            ellipse_surf = pygame.Surface((w, h), pygame.SRCALPHA)
+            pygame.draw.ellipse(ellipse_surf, (255, 255, 255, 255), (0, 0, w, h))
+            rotated = pygame.transform.rotate(ellipse_surf, angle)
+            rect = rotated.get_rect(center=(cx, cy))
+            mask.blit(rotated, rect)
+        next_copy = next_image.copy()
+        next_copy.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        next_copy.set_alpha(int(255 * alpha))
+        screen.blit(next_copy, next_copy.get_rect(center=(w_center, h_center)))
+
+
+def draw_puzzle_transition(screen, screen_size, current_image, next_image, alpha, transition_cache):
+    w_center, h_center = screen_size[0] // 2, screen_size[1] // 2
+    if current_image:
+        temp_current = current_image.copy()
+        temp_current.set_alpha(int(255 * (1.0 - alpha)))
+        screen.blit(temp_current, temp_current.get_rect(center=(w_center, h_center)))
+    if next_image:
+        img_w, img_h = next_image.get_width(), next_image.get_height()
+        grid_rows = 4
+        grid_cols = 4
+        tile_w = img_w // grid_cols
+        tile_h = img_h // grid_rows
+        if 'puzzle_tiles' not in transition_cache:
+            tiles = []
+            for row in range(grid_rows):
+                for col in range(grid_cols):
+                    x_src = col * tile_w
+                    y_src = row * tile_h
+                    if col < grid_cols - 1:
+                        w = tile_w
+                    else:
+                        w = img_w - tile_w * col
+                    if row < grid_rows - 1:
+                        h = tile_h
+                    else:
+                        h = img_h - tile_h * row
+                    dest_x = x_src
+                    dest_y = y_src
+                    start_x = random.randint(-img_w // 2, img_w + img_w // 2)
+                    start_y = random.randint(-img_h // 2, img_h + img_h // 2)
+                    tiles.append((x_src, y_src, w, h, start_x, start_y, dest_x, dest_y))
+            transition_cache['puzzle_tiles'] = tiles
+        tiles = transition_cache['puzzle_tiles']
+        for (x_src, y_src, w, h, sx, sy, dx, dy) in tiles:
+            cur_x = sx + (dx - sx) * alpha
+            cur_y = sy + (dy - sy) * alpha
+            tile_surf = next_image.subsurface((x_src, y_src, w, h)).copy()
+            tile_surf.set_alpha(int(255 * alpha))
+            screen_x = w_center - img_w // 2 + cur_x
+            screen_y = h_center - img_h // 2 + cur_y
+            screen.blit(tile_surf, (screen_x, screen_y))
+
+
+def draw_wipe_transition(screen, screen_size, current_image, next_image, alpha, transition_cache):
+    screen_width, screen_height = screen_size
+    w_center, h_center = screen_width // 2, screen_height // 2
+    if current_image:
+        temp_current = current_image.copy()
+        temp_current.set_alpha(int(255 * (1.0 - alpha)))
+        screen.blit(temp_current, temp_current.get_rect(center=(w_center, h_center)))
+    if next_image:
+        if 'wipe_orient' not in transition_cache:
+            transition_cache['wipe_orient'] = random.choice(["LR", "RL", "UD", "DU"])
+        orient = transition_cache['wipe_orient']
+        img_w, img_h = next_image.get_width(), next_image.get_height()
+        offset_x = w_center - img_w // 2
+        offset_y = h_center - img_h // 2
+        if orient == "LR":
+            width_portion = int(img_w * alpha)
+            if width_portion > 0:
+                part = next_image.subsurface((0, 0, width_portion, img_h))
+                part_copy = part.copy()
+                part_copy.set_alpha(int(255 * alpha))
+                screen.blit(part_copy, (offset_x, offset_y))
+        elif orient == "RL":
+            width_portion = int(img_w * alpha)
+            if width_portion > 0:
+                x_src = img_w - width_portion
+                part = next_image.subsurface((x_src, 0, width_portion, img_h))
+                part_copy = part.copy()
+                part_copy.set_alpha(int(255 * alpha))
+                screen.blit(part_copy, (offset_x + x_src, offset_y))
+        elif orient == "UD":
+            height_portion = int(img_h * alpha)
+            if height_portion > 0:
+                part = next_image.subsurface((0, 0, img_w, height_portion))
+                part_copy = part.copy()
+                part_copy.set_alpha(int(255 * alpha))
+                screen.blit(part_copy, (offset_x, offset_y))
+        elif orient == "DU":
+            height_portion = int(img_h * alpha)
+            if height_portion > 0:
+                y_src = img_h - height_portion
+                part = next_image.subsurface((0, y_src, img_w, height_portion))
+                part_copy = part.copy()
+                part_copy.set_alpha(int(255 * alpha))
+                screen.blit(part_copy, (offset_x, offset_y + y_src))
+
+
 def draw_domino_transition(screen, screen_size, current_image, next_image, alpha, transition_cache):
     screen_width, screen_height = screen_size
     w_center, h_center = screen_width // 2, screen_height // 2
@@ -560,8 +726,8 @@ def draw_dice_transition(screen, screen_size, current_image, next_image, alpha, 
         temp_current.set_alpha(int(255 * (1.0 - alpha)))
         screen.blit(temp_current, temp_current.get_rect(center=(w_center, h_center)))
     if next_image:
-        grid_rows = 3
-        grid_cols = 3
+        grid_rows = 5
+        grid_cols = 5
         total_cells = grid_rows * grid_cols
         cells_to_reveal = int(total_cells * alpha)
         cell_w = next_image.get_width() // grid_cols
@@ -652,6 +818,14 @@ def draw_transition(screen, screen_size, current_image, next_image, alpha, effec
             draw_domino_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
         elif effect == 'Dice':
             draw_dice_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
+        elif effect == 'Pie':
+            draw_pie_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
+        elif effect == 'Salmi':
+            draw_salmi_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
+        elif effect == 'Puzzle':
+            draw_puzzle_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
+        elif effect == 'Wipe':
+            draw_wipe_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
         elif effect == 'Balls':
             draw_balls_transition(screen, screen_size, current_image, next_image, alpha, transition_cache)
         else:
@@ -1149,6 +1323,14 @@ def build_gui(noclick_forced_off: bool):
             ignore_transition_effect_var.set(False)
             shuffle_var.set(False)
             effect_var.set("Balls")
+        try:
+            globals()['check_interval_var'] = float(interval_entry.get())
+        except Exception:
+            pass
+        try:
+            globals()['transition_duration_var'] = float(transition_entry.get())
+        except Exception:
+            pass
     preset_default = tk.Radiobutton(preset_frame, text="default values", variable=preset_var, value="default", command=apply_preset)
     preset_slideshow = tk.Radiobutton(preset_frame, text="Slideshow", variable=preset_var, value="slideshow", command=apply_preset)
     preset_sd_fum = tk.Radiobutton(preset_frame, text="SD-FUM animation", variable=preset_var, value="sd_fum", command=apply_preset)
@@ -1187,6 +1369,10 @@ def build_gui(noclick_forced_off: bool):
         "Domino",
         "Dice",
         "Balls",
+        "Pie",
+        "Salmi",
+        "Puzzle",
+        "Wipe",
         "Random",
     ]
     if selected_effect not in effect_options:
