@@ -49,6 +49,7 @@ Requirements: Make sure you have installed the additional python library
 v3.4 (29/09/2025)
 - Bugfixes
 - Effects added Pie, Salmi, Puzzle, Wipe
+- Added new executable v3.4
 
 v3.3 (28/09/2025)
 - Added Effects
