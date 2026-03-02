@@ -20,13 +20,16 @@ btw. to get some help there are tooltips for every visible function of the GUI. 
 
 Changelog
 
-Commit x:
+Commit x (02.03.2026) :
 
 - Interface Switched from Tkinter to PyQT6
 - Image Counter option added
 - All protocol option replaced with a slider
 
-Commit 0fafd28 :
+<img width="824" height="751" alt="TimedViewer_new" src="https://github.com/user-attachments/assets/eee3225a-3b35-48f4-8bd8-595ac4c092ce" />
+
+
+Commit 0fafd28 (29.09.2025) :
 
 <img width="646" height="627" alt="grafik" src="https://github.com/user-attachments/assets/5ee632dd-88cf-4710-b281-f561b06700fd" />
 
