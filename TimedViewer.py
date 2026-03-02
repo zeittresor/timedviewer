@@ -8,8 +8,8 @@ import math
 import random
 import platform
 from pygame.locals import *
-import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from PyQt6 import QtCore, QtGui, QtWidgets
+from PyQt6.QtCore import Qt
 import subprocess
 import gc
 
@@ -18,16 +18,15 @@ TRANSITION_DURATION = 3.0
 IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.bmp', '.gif']
 PROTOCOL_FILE = 'displayed_images.csv'
 VERSION_INFO = (
-    "TimedViewer v3.4.0\n"
+    "TimedViewer v3.5.0\n"
     "An enhanced open–source project from https://github.com/zeittresor/timedviewer\n"
     "Licensed under the MIT License."
 )
 
 selected_directory = os.getcwd()
-use_protocol = True
-initialize_all = False
-initialize_all_minus10 = False
-initialize_all_minus75 = False
+use_protocol = True  # kept for backwards compatibility (protocol is active unless -noprotocol)
+initialize_allprotocol = False
+initialize_allprotocol_skip_newest = 0  # how many of the newest files should NOT be marked as displayed
 ignore_protocol = False
 loop_mode = False
 yoyo_mode = False
@@ -40,10 +39,11 @@ any_image_displayed = False
 show_starfield = True
 ignore_transition_effect = False
 shuffle_mode = False
+show_stats_overlay = False  # draw small bottom-right stats overlay during slideshow
 VIEWPATH_FILE = 'viewpath.txt'
 
 
-def get_image_files(directory: str):
+def get_image_files(directory: str, *, shuffle: bool | None = None):
     image_files = []
     for root, _dirs, files in os.walk(directory):
         for file in files:
@@ -51,16 +51,26 @@ def get_image_files(directory: str):
                 full_path = os.path.abspath(os.path.join(root, file))
                 image_files.append(full_path)
     image_files.sort(key=lambda x: os.path.getmtime(x))
-    if shuffle_mode:
+    apply_shuffle = shuffle_mode if shuffle is None else shuffle
+    if apply_shuffle:
         random.shuffle(image_files)
     return image_files
+
+def count_images_in_directory(directory: str) -> int:
+    """Fast-ish count of supported image files (recursive), without sorting."""
+    cnt = 0
+    for root, _dirs, files in os.walk(directory):
+        for fn in files:
+            if os.path.splitext(fn)[1].lower() in IMAGE_EXTENSIONS:
+                cnt += 1
+    return cnt
 
 
 def load_and_scale_image(path: str, screen_size):
     try:
         image = pygame.image.load(path)
         image = image.convert_alpha()
-    except pygame.error as e:
+    except Exception as e:
         print(f"Error loading image {path}: {e}")
         return None
     image_rect = image.get_rect()
@@ -103,9 +113,17 @@ def parse_arguments():
         formatter_class=argparse.RawTextHelpFormatter
     )
     parser.add_argument('-noprotocol', action='store_true', help='Ignore the protocol file and display all images.')
-    parser.add_argument('-allprotocol', action='store_true', help='Mark all existing images as displayed without showing them.')
-    parser.add_argument('-allprotocolminus10', action='store_true', help='Like -allprotocol but skip the newest 10 images.')
-    parser.add_argument('-allprotocolminus75', action='store_true', help='Like -allprotocol but skip the newest 75 images.')
+    # Protocol initialisation (backwards compatible flags + new generic form)
+    parser.add_argument('-allprotocol', action='store_true',
+                        help='Mark all existing images as displayed without showing them.')
+    parser.add_argument('-allprotocolminus10', action='store_true',
+                        help='Like -allprotocol but skip the newest 10 images.')
+    parser.add_argument('-allprotocolminus75', action='store_true',
+                        help='Like -allprotocol but skip the newest 75 images.')
+    parser.add_argument('-allprotocolskip', type=int, default=None,
+                        help='Like -allprotocol but skip the newest N images (generic replacement for -allprotocolminus10/-75).')
+    parser.add_argument('-showstats', action='store_true',
+                        help='Show a small bottom-right stats overlay (remaining/found/shown) while the slideshow runs.')
     parser.add_argument('-version', action='store_true', help='Display version information and exit.')
     parser.add_argument('-noclick', action='store_true', help='Disable closing viewer on left mouse click.')
     parser.add_argument('-showconsole', action='store_true', help='Show console window (Windows only).')
@@ -114,52 +132,40 @@ def parse_arguments():
     return parser.parse_args()
 
 
+
+
 def initialize_protocol(directory: str, protocol_path: str, use_protocol_flag: bool,
-                        init_all: bool, init_minus10: bool, init_minus75: bool):
-    displayed_images = set()
-    if use_protocol_flag:
-        if init_minus75:
-            all_images = get_image_files(directory)
-            skip_count = min(75, len(all_images))
-            images_to_write = all_images[:len(all_images) - skip_count]
-            try:
-                with open(protocol_path, 'w', newline='', encoding='utf-8') as csvfile:
-                    writer = csv.writer(csvfile)
-                    for image_path in images_to_write:
-                        writer.writerow([image_path])
-                        displayed_images.add(image_path)
-                if skip_count > 0:
-                    print(f"All existing images have been added to the protocol except the newest {skip_count} images.")
-            except Exception as e:
-                print(f"Error initializing protocol file: {e}")
-        elif init_minus10:
-            all_images = get_image_files(directory)
-            skip_count = min(10, len(all_images))
-            images_to_write = all_images[:len(all_images) - skip_count]
-            try:
-                with open(protocol_path, 'w', newline='', encoding='utf-8') as csvfile:
-                    writer = csv.writer(csvfile)
-                    for image_path in images_to_write:
-                        writer.writerow([image_path])
-                        displayed_images.add(image_path)
-                if skip_count > 0:
-                    print(f"All existing images have been added to the protocol except the newest {skip_count} images.")
-            except Exception as e:
-                print(f"Error initializing protocol file: {e}")
-        elif init_all:
-            all_images = get_image_files(directory)
-            try:
-                with open(protocol_path, 'w', newline='', encoding='utf-8') as csvfile:
-                    writer = csv.writer(csvfile)
-                    for image_path in all_images:
-                        writer.writerow([image_path])
-                        displayed_images.add(image_path)
+                        init_allprotocol: bool, skip_newest: int):
+    """Return a set of already-displayed image paths (from protocol or initialisation).
+    If init_allprotocol is True, write a fresh protocol file that marks all existing images as displayed,
+    except for the newest `skip_newest` images.
+    """
+    displayed_images: set[str] = set()
+    if not use_protocol_flag:
+        return displayed_images
+
+    if init_allprotocol:
+        all_images = get_image_files(directory, shuffle=False)
+        skip_count = max(0, int(skip_newest))
+        skip_count = min(skip_count, len(all_images))
+        images_to_write = all_images[:max(0, len(all_images) - skip_count)]
+        try:
+            with open(protocol_path, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                for image_path in images_to_write:
+                    writer.writerow([image_path])
+                    displayed_images.add(image_path)
+            if skip_count > 0:
+                print(f"All existing images have been added to the protocol except the newest {skip_count} images.")
+            else:
                 print(f"All existing images have been added to the protocol file '{PROTOCOL_FILE}'.")
-            except Exception as e:
-                print(f"Error initializing protocol file: {e}")
-        else:
-            displayed_images = load_displayed_images(protocol_path)
-    return displayed_images
+        except Exception as e:
+            print(f"Error initializing protocol file: {e}")
+        return displayed_images
+
+    return load_displayed_images(protocol_path)
+
+
 
 
 def display_version_info():
@@ -168,17 +174,17 @@ def display_version_info():
 
 
 def delete_protocol(protocol_path: str):
-    if os.path.exists(protocol_path):
-        if messagebox.askyesno("Delete Protocol", "Are you sure you want to delete the protocol file?"):
-            try:
-                os.remove(protocol_path)
-                messagebox.showinfo("Info", "Protocol file deleted.")
-            except Exception as e:
-                messagebox.showerror("Error", f"Could not delete protocol file: {e}")
-        else:
-            messagebox.showinfo("Info", "Protocol file not deleted.")
-    else:
-        messagebox.showinfo("Info", "No protocol file found to delete.")
+    """Delete protocol file (CLI fallback). The Qt GUI provides a confirmation dialog."""
+    if not os.path.exists(protocol_path):
+        print("No protocol file found to delete.")
+        return
+    try:
+        os.remove(protocol_path)
+        print("Protocol file deleted.")
+    except Exception as e:
+        print(f"Could not delete protocol file: {e}")
+
+
 
 
 def generate_dissolve_blocks(screen_size, block_size: int = 20):
@@ -759,7 +765,26 @@ def draw_dice_transition(screen, screen_size, current_image, next_image, alpha, 
             screen.blit(cell_surf_copy, (x_dst, y_dst))
 
 
-def draw_transition(screen, screen_size, current_image, next_image, alpha, effect, transition_cache):
+def draw_stats_overlay(screen, screen_size, lines, font):
+    """Draws a small semi-transparent overlay bottom-right."""
+    if not lines:
+        return
+    padding = 8
+    margin = 12
+    rendered = [font.render(line, True, (255, 255, 255)) for line in lines]
+    width = max(s.get_width() for s in rendered) + padding * 2
+    height = sum(s.get_height() for s in rendered) + padding * 2 + (len(rendered) - 1) * 2
+    x = screen_size[0] - width - margin
+    y = screen_size[1] - height - margin
+    bg = pygame.Surface((width, height), pygame.SRCALPHA)
+    bg.fill((0, 0, 0, 150))
+    screen.blit(bg, (x, y))
+    cy = y + padding
+    for surf in rendered:
+        screen.blit(surf, (x + padding, cy))
+        cy += surf.get_height() + 2
+
+def draw_transition(screen, screen_size, current_image, next_image, alpha, effect, transition_cache, overlay_lines=None, overlay_font=None):
     screen.fill((0, 0, 0))
     try:
         if effect == 'Fade':
@@ -846,6 +871,8 @@ def draw_transition(screen, screen_size, current_image, next_image, alpha, effec
             temp_next = next_image.copy()
             temp_next.set_alpha(int(255 * alpha))
             screen.blit(temp_next, temp_next.get_rect(center=(screen_size[0] // 2, screen_size[1] // 2)))
+    if overlay_lines and overlay_font:
+        draw_stats_overlay(screen, screen_size, overlay_lines, overlay_font)
     pygame.display.flip()
 
 
@@ -883,54 +910,99 @@ def update_and_draw_starfield(screen, stars, screen_size):
 
 
 def run_viewer():
-    global selected_directory, use_protocol, initialize_all, initialize_all_minus10, initialize_all_minus75
+    global selected_directory, use_protocol, initialize_allprotocol, initialize_allprotocol_skip_newest
     global ignore_protocol, loop_mode, yoyo_mode, close_viewer_on_left_click
     global selected_effect, check_interval_var, transition_duration_var
     global waiting_for_new_images_message, any_image_displayed, show_starfield
-    global ignore_transition_effect, shuffle_mode
+    global ignore_transition_effect, shuffle_mode, show_stats_overlay
 
     any_image_displayed = False
     protocol_path = os.path.join(selected_directory, PROTOCOL_FILE)
     actual_use_protocol = not ignore_protocol
+
     displayed_images = initialize_protocol(
         selected_directory,
         protocol_path,
         actual_use_protocol,
-        initialize_all,
-        initialize_all_minus10,
-        initialize_all_minus75,
+        initialize_allprotocol,
+        initialize_allprotocol_skip_newest,
     )
+
     pygame.init()
     infoObject = pygame.display.Info()
     screen_size = (infoObject.current_w, infoObject.current_h)
     screen = pygame.display.set_mode(screen_size, pygame.FULLSCREEN)
     pygame.display.set_caption('TimedViewer')
     clock = pygame.time.Clock()
+
+    overlay_font = pygame.font.SysFont(None, 18)
+
+    # stats for overlay
+    stats_total_found = 0
+    stats_remaining = 0
+    stats_shown = 0
+
+    def overlay_lines():
+        if not show_stats_overlay:
+            return None
+        return [
+            f"Remaining: {stats_remaining}",
+            f"Found: {stats_total_found}",
+            f"Shown: {stats_shown}",
+        ]
+
     stars = None
     if show_starfield:
         stars = init_starfield(200, screen_size)
+
+    # -- Mode A: ignore protocol + loop/yoyo
     if ignore_protocol and (loop_mode or yoyo_mode):
         current_image = None
         next_image = None
         transition_start_time = None
         transition_cache = {}
         running = True
-        last_check_time = 0
-        image_list = []
+
+        last_stats_refresh = 0.0
+        image_list: list[str] = []
         current_index = -1
         direction = 1
 
+        def refresh_stats(force: bool = False):
+            nonlocal last_stats_refresh, image_list, current_index, direction
+            nonlocal stats_total_found, stats_remaining
+            now = time.time()
+            if force or (now - last_stats_refresh >= check_interval_var):
+                last_stats_refresh = now
+                # total found in folder (independent of current cycle)
+                try:
+                    stats_total_found = count_images_in_directory(selected_directory)
+                except Exception:
+                    stats_total_found = len(image_list)
+
+            # remaining in current cycle / sweep
+            if not image_list:
+                stats_remaining = 0
+                return
+            if yoyo_mode and direction < 0:
+                stats_remaining = max(0, current_index)
+            else:
+                stats_remaining = max(0, len(image_list) - current_index - 1)
+
         def load_image_list():
-            return get_image_files(selected_directory)
+            # For looping, shuffle applies; for yoyo, shuffle can still apply (it's just the order)
+            return get_image_files(selected_directory, shuffle=shuffle_mode)
 
         def get_next_image_loop():
             nonlocal image_list, current_index
             if not image_list or current_index >= len(image_list) - 1:
                 image_list = load_image_list()
                 current_index = -1
+                refresh_stats(force=True)
             if not image_list:
                 return None
             current_index += 1
+            refresh_stats()
             path = image_list[current_index]
             return load_and_scale_image(path, screen_size)
 
@@ -939,6 +1011,7 @@ def run_viewer():
             if not image_list:
                 image_list = load_image_list()
                 current_index = -1 if direction > 0 else len(image_list)
+                refresh_stats(force=True)
             if not image_list:
                 return None
             new_index = current_index + direction
@@ -949,19 +1022,24 @@ def run_viewer():
                 new_index = 0
                 direction = 1
             current_index = new_index
+            refresh_stats()
             path = image_list[current_index]
             return load_and_scale_image(path, screen_size)
 
+        # pre-load first image
+        refresh_stats(force=True)
         if yoyo_mode:
             next_image = get_next_image_yoyo()
         else:
             next_image = get_next_image_loop()
+
         if next_image:
             transition_start_time = time.time()
             transition_cache.clear()
             transition_cache['effect'] = choose_effect(selected_effect)
         else:
             any_image_displayed = False
+
         while running:
             current_time = time.time()
             for event in pygame.event.get():
@@ -972,18 +1050,21 @@ def run_viewer():
                 elif event.type == MOUSEBUTTONDOWN:
                     if close_viewer_on_left_click and event.button == 1:
                         running = False
-            if current_time - last_check_time >= check_interval_var:
-                last_check_time = current_time
+
+            refresh_stats()
+
             effective_td = 0 if ignore_transition_effect else transition_duration_var
             if transition_start_time:
                 elapsed = current_time - transition_start_time
                 if elapsed < effective_td:
                     alpha = elapsed / effective_td if effective_td > 0 else 1.0
                     eff = transition_cache.get('effect', selected_effect)
-                    draw_transition(screen, screen_size, current_image, next_image, alpha, eff, transition_cache)
+                    draw_transition(screen, screen_size, current_image, next_image, alpha, eff, transition_cache,
+                                   overlay_lines(), overlay_font)
                 else:
                     eff = transition_cache.get('effect', selected_effect)
-                    draw_transition(screen, screen_size, current_image, next_image, 1.0, eff, transition_cache)
+                    draw_transition(screen, screen_size, current_image, next_image, 1.0, eff, transition_cache,
+                                   overlay_lines(), overlay_font)
                     if current_image:
                         del current_image
                         gc.collect()
@@ -991,42 +1072,53 @@ def run_viewer():
                     next_image = None
                     transition_start_time = None
                     any_image_displayed = True
+                    stats_shown += 1
             else:
-                if not current_image:
-                    if yoyo_mode:
-                        next_image = get_next_image_yoyo()
-                    else:
-                        next_image = get_next_image_loop()
-                    if next_image:
-                        transition_start_time = current_time
-                        transition_cache.clear()
-                        transition_cache['effect'] = choose_effect(selected_effect)
-                else:
+                # draw current
+                if current_image:
                     screen.fill((0, 0, 0))
                     screen.blit(current_image, current_image.get_rect(center=(screen_size[0] // 2, screen_size[1] // 2)))
+                    if show_stats_overlay:
+                        draw_stats_overlay(screen, screen_size, overlay_lines(), overlay_font)
                     pygame.display.flip()
-                    if yoyo_mode:
-                        next_image = get_next_image_yoyo()
-                    else:
-                        next_image = get_next_image_loop()
-                    if next_image:
-                        transition_start_time = current_time
-                        transition_cache.clear()
-                        transition_cache['effect'] = choose_effect(selected_effect)
+
+                # advance to next
+                if yoyo_mode:
+                    next_image = get_next_image_yoyo()
+                else:
+                    next_image = get_next_image_loop()
+                if next_image:
+                    transition_start_time = current_time
+                    transition_cache.clear()
+                    transition_cache['effect'] = choose_effect(selected_effect)
+
             clock.tick(60)
+
         if current_image:
             del current_image
         if next_image:
             del next_image
         pygame.quit()
         return
+
+    # -- Mode B: protocol-based (default)
     current_image = None
     next_image = None
     transition_start_time = None
     transition_cache = {}
     running = True
-    last_check_time = 0
+    last_check_time = 0.0
     chosen_effect = selected_effect
+
+    # initial stats (so overlay shows something immediately)
+    try:
+        image_files = get_image_files(selected_directory, shuffle=False)
+        stats_total_found = len(image_files)
+        stats_remaining = sum(1 for p in image_files if p not in displayed_images)
+    except Exception:
+        stats_total_found = 0
+        stats_remaining = 0
+
     while running:
         current_time = time.time()
         for event in pygame.event.get():
@@ -1037,9 +1129,13 @@ def run_viewer():
             elif event.type == MOUSEBUTTONDOWN:
                 if close_viewer_on_left_click and event.button == 1:
                     running = False
+
         if current_time - last_check_time >= check_interval_var:
             last_check_time = current_time
-            image_files = get_image_files(selected_directory)
+            image_files = get_image_files(selected_directory, shuffle=False)
+            stats_total_found = len(image_files)
+            stats_remaining = sum(1 for p in image_files if p not in displayed_images)
+
             for image_file in image_files:
                 if image_file not in displayed_images:
                     loaded_image = load_and_scale_image(image_file, screen_size)
@@ -1049,20 +1145,24 @@ def run_viewer():
                         if actual_use_protocol:
                             save_displayed_image(protocol_path, image_file)
                         displayed_images.add(image_file)
+                        stats_remaining = max(0, stats_remaining - 1)
                         transition_start_time = current_time
                         transition_cache.clear()
                         transition_cache['effect'] = chosen_effect
                         break
+
         effective_td = 0 if ignore_transition_effect else transition_duration_var
         if transition_start_time:
             elapsed = current_time - transition_start_time
             if elapsed < effective_td:
                 alpha = elapsed / effective_td if effective_td > 0 else 1.0
                 eff = transition_cache.get('effect', chosen_effect)
-                draw_transition(screen, screen_size, current_image, next_image, alpha, eff, transition_cache)
+                draw_transition(screen, screen_size, current_image, next_image, alpha, eff, transition_cache,
+                               overlay_lines(), overlay_font)
             else:
                 eff = transition_cache.get('effect', chosen_effect)
-                draw_transition(screen, screen_size, current_image, next_image, 1.0, eff, transition_cache)
+                draw_transition(screen, screen_size, current_image, next_image, 1.0, eff, transition_cache,
+                               overlay_lines(), overlay_font)
                 if current_image:
                     del current_image
                     gc.collect()
@@ -1070,10 +1170,13 @@ def run_viewer():
                 next_image = None
                 transition_start_time = None
                 any_image_displayed = True
+                stats_shown += 1
         else:
             if current_image:
                 screen.fill((0, 0, 0))
                 screen.blit(current_image, current_image.get_rect(center=(screen_size[0] // 2, screen_size[1] // 2)))
+                if show_stats_overlay:
+                    draw_stats_overlay(screen, screen_size, overlay_lines(), overlay_font)
                 pygame.display.flip()
             else:
                 if waiting_for_new_images_message and not any_image_displayed:
@@ -1084,8 +1187,12 @@ def run_viewer():
                     text = font.render("Waiting for new images...", True, (255, 255, 255))
                     rect = text.get_rect(center=(screen_size[0] // 2, screen_size[1] // 2))
                     screen.blit(text, rect)
+                    if show_stats_overlay:
+                        draw_stats_overlay(screen, screen_size, overlay_lines(), overlay_font)
                     pygame.display.flip()
+
         clock.tick(60)
+
     if current_image:
         del current_image
     if next_image:
@@ -1093,452 +1200,663 @@ def run_viewer():
     pygame.quit()
 
 
-def start_viewer_from_gui(root):
-    root.withdraw()
-    run_viewer()
-    root.deiconify()
 
 
-def select_directory():
-    global selected_directory
-    dir_path = filedialog.askdirectory(initialdir=selected_directory)
-    if dir_path:
-        selected_directory = dir_path
-        with open(VIEWPATH_FILE, 'w', encoding='utf-8') as f:
-            f.write(selected_directory)
 
 
-def create_tooltip(widget, text: str):
-    tipwindow = None
-    def show_tip(_event):
-        nonlocal tipwindow
-        if tipwindow or not text:
-            return
-        x, y, cx, cy = (0, 0, 0, 0)
-        if widget.winfo_class() == 'Entry':
-            x, y, cx, cy = widget.bbox("insert")
-        x += widget.winfo_rootx() + 20
-        y += widget.winfo_rooty() + 20
-        tipwindow = tw = tk.Toplevel(widget)
-        tw.wm_overrideredirect(True)
-        tw.wm_geometry(f"+{x}+{y}")
-        label = tk.Label(tw, text=text, justify=tk.LEFT, background="#ffffe0", relief=tk.SOLID,
-                          borderwidth=1, font=("tahoma", "8", "normal"))
-        label.pack(ipadx=1)
-    def hide_tip(_event):
-        nonlocal tipwindow
-        if tipwindow:
-            tipwindow.destroy()
-            tipwindow = None
-    widget.bind("<Enter>", show_tip)
-    widget.bind("<Leave>", hide_tip)
 
 
-def build_gui(noclick_forced_off: bool):
-    global selected_directory, ignore_protocol, loop_mode, yoyo_mode
-    global initialize_all, initialize_all_minus10, initialize_all_minus75
-    global close_viewer_on_left_click, selected_effect
-    global check_interval_var, transition_duration_var, show_starfield
-    global ignore_transition_effect, shuffle_mode
-    root = tk.Tk()
-    root.title("TimedViewer Configuration")
-    root.geometry("640x590")
-    root.resizable(False, False)
-    main_frame = tk.Frame(root)
-    main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
-    main_frame.grid_columnconfigure(0, weight=1, uniform="cols")
-    main_frame.grid_columnconfigure(1, weight=1, uniform="cols")
-    left_frame = tk.Frame(main_frame)
-    right_frame = tk.Frame(main_frame)
-    left_frame.grid(row=0, column=0, sticky="nw", padx=(0, 10), pady=10)
-    right_frame.grid(row=0, column=1, sticky="ne", padx=(10, 0), pady=10)
-    bottom_frame = tk.Frame(root)
-    bottom_frame.pack(side=tk.BOTTOM, pady=5)
-    dir_label = tk.Label(left_frame, text="Select directory:")
-    dir_label.grid(row=0, column=0, sticky="w", pady=(0, 5))
-    dir_button = tk.Button(left_frame, text="Browse...", command=select_directory)
-    dir_button.grid(row=1, column=0, sticky="w", pady=(0, 5))
-    selected_dir_var = tk.StringVar(value=selected_directory)
-    def update_selected_dir():
-        selected_dir_var.set(selected_directory)
-        root.after(200, update_selected_dir)
-    update_selected_dir()
-    selected_dir_label = tk.Label(left_frame, textvariable=selected_dir_var, wraplength=250)
-    selected_dir_label.grid(row=2, column=0, sticky="w", pady=(0, 5))
-    def open_in_file_manager():
+
+
+
+
+
+def open_in_file_manager(path: str):
+    try:
         if platform.system() == "Windows":
-            os.startfile(selected_directory)
+            os.startfile(path)  # type: ignore[attr-defined]
         elif platform.system() == "Darwin":
-            subprocess.Popen(["open", selected_directory])
+            subprocess.Popen(["open", path])
         else:
-            subprocess.Popen(["xdg-open", selected_directory])
-    open_dir_button = tk.Button(left_frame, text="Open in Filemanager", command=open_in_file_manager)
-    open_dir_button.grid(row=3, column=0, sticky="w", pady=(0, 15))
-    interval_label = tk.Label(left_frame, text="Check Interval (sec):")
-    interval_label.grid(row=4, column=0, sticky="w", pady=(0, 5))
-    interval_entry = tk.Entry(left_frame, width=10)
-    interval_entry.insert(0, str(check_interval_var))
-    interval_entry.grid(row=5, column=0, sticky="w", pady=(0, 15))
-    transition_label = tk.Label(left_frame, text="Transition Duration (sec):")
-    transition_label.grid(row=6, column=0, sticky="w", pady=(0, 5))
-    transition_entry = tk.Entry(left_frame, width=10)
-    transition_entry.insert(0, str(transition_duration_var))
-    transition_entry.grid(row=7, column=0, sticky="w")
-    interval_entry.bind("<KeyRelease>", lambda _e: preset_var.set("none"))
-    transition_entry.bind("<KeyRelease>", lambda _e: preset_var.set("none"))
-    preset_frame = tk.Frame(left_frame)
-    preset_frame.grid(row=8, column=0, sticky="w", pady=(25, 5))
-    preset_label = tk.Label(preset_frame, text="Presets:")
-    preset_label.pack(side=tk.TOP, anchor="w")
-    preset_value = "default" if check_interval_var == CHECK_INTERVAL and transition_duration_var == TRANSITION_DURATION else "none"
-    preset_var = tk.StringVar(value=preset_value)
-    def apply_preset():
-        previous_effect = effect_var.get()
-        p = preset_var.get()
-        if p == "default":
-            interval_entry.delete(0, tk.END)
-            interval_entry.insert(0, str(CHECK_INTERVAL))
-            transition_entry.delete(0, tk.END)
-            transition_entry.insert(0, str(TRANSITION_DURATION))
-            noprotocol_var.set(False)
-            loop_var.set(False)
-            yoyo_var.set(False)
-            allprotocol_var.set(False)
-            allprotocolminus10_var.set(False)
-            allprotocolminus75_var.set(False)
-            closeleft_var.set(True and not noclick_forced_off)
-            starfield_var.set(True)
-            ignore_transition_effect_var.set(False)
-            shuffle_var.set(False)
-            effect_var.set(previous_effect)
-        elif p == "slideshow":
-            interval_entry.delete(0, tk.END)
-            interval_entry.insert(0, "4")
-            transition_entry.delete(0, tk.END)
-            transition_entry.insert(0, "1")
-            noprotocol_var.set(False)
-            loop_var.set(False)
-            yoyo_var.set(False)
-            allprotocol_var.set(False)
-            allprotocolminus10_var.set(False)
-            allprotocolminus75_var.set(False)
-            closeleft_var.set(True and not noclick_forced_off)
-            starfield_var.set(True)
-            ignore_transition_effect_var.set(False)
-            shuffle_var.set(False)
-            effect_var.set(previous_effect)
-        elif p == "sd_fum":
-            interval_entry.delete(0, tk.END)
-            interval_entry.insert(0, "3")
-            transition_entry.delete(0, tk.END)
-            transition_entry.insert(0, "0.04")
-            noprotocol_var.set(True)
-            loop_var.set(True)
-            yoyo_var.set(False)
-            allprotocol_var.set(False)
-            allprotocolminus10_var.set(False)
-            allprotocolminus75_var.set(False)
-            closeleft_var.set(True and not noclick_forced_off)
-            starfield_var.set(False)
-            ignore_transition_effect_var.set(False)
-            shuffle_var.set(False)
-            effect_var.set(previous_effect)
-        elif p == "fast":
-            interval_entry.delete(0, tk.END)
-            interval_entry.insert(0, "2")
-            transition_entry.delete(0, tk.END)
-            transition_entry.insert(0, "0.5")
-            noprotocol_var.set(False)
-            loop_var.set(False)
-            yoyo_var.set(False)
-            allprotocol_var.set(False)
-            allprotocolminus10_var.set(False)
-            allprotocolminus75_var.set(False)
-            closeleft_var.set(True and not noclick_forced_off)
-            starfield_var.set(True)
-            ignore_transition_effect_var.set(False)
-            shuffle_var.set(False)
-            effect_var.set(previous_effect)
-        elif p == "domino_show":
-            interval_entry.delete(0, tk.END)
-            interval_entry.insert(0, "3")
-            transition_entry.delete(0, tk.END)
-            transition_entry.insert(0, "0.6")
-            noprotocol_var.set(True)
-            loop_var.set(True)
-            yoyo_var.set(False)
-            allprotocol_var.set(False)
-            allprotocolminus10_var.set(False)
-            allprotocolminus75_var.set(False)
-            closeleft_var.set(True and not noclick_forced_off)
-            starfield_var.set(False)
-            ignore_transition_effect_var.set(False)
-            shuffle_var.set(False)
-            effect_var.set("Domino")
-        elif p == "circle_show":
-            interval_entry.delete(0, tk.END)
-            interval_entry.insert(0, "3")
-            transition_entry.delete(0, tk.END)
-            transition_entry.insert(0, "1")
-            noprotocol_var.set(True)
-            loop_var.set(True)
-            yoyo_var.set(False)
-            allprotocol_var.set(False)
-            allprotocolminus10_var.set(False)
-            allprotocolminus75_var.set(False)
-            closeleft_var.set(True and not noclick_forced_off)
-            starfield_var.set(False)
-            ignore_transition_effect_var.set(False)
-            shuffle_var.set(False)
-            effect_var.set("Circle")
-        elif p == "dice_show":
-            interval_entry.delete(0, tk.END)
-            interval_entry.insert(0, "3")
-            transition_entry.delete(0, tk.END)
-            transition_entry.insert(0, "0.8")
-            noprotocol_var.set(True)
-            loop_var.set(True)
-            yoyo_var.set(False)
-            allprotocol_var.set(False)
-            allprotocolminus10_var.set(False)
-            allprotocolminus75_var.set(False)
-            closeleft_var.set(True and not noclick_forced_off)
-            starfield_var.set(False)
-            ignore_transition_effect_var.set(False)
-            shuffle_var.set(False)
-            effect_var.set("Dice")
-        elif p == "balls_show":
-            interval_entry.delete(0, tk.END)
-            interval_entry.insert(0, "3")
-            transition_entry.delete(0, tk.END)
-            transition_entry.insert(0, "1")
-            noprotocol_var.set(True)
-            loop_var.set(True)
-            yoyo_var.set(False)
-            allprotocol_var.set(False)
-            allprotocolminus10_var.set(False)
-            allprotocolminus75_var.set(False)
-            closeleft_var.set(True and not noclick_forced_off)
-            starfield_var.set(False)
-            ignore_transition_effect_var.set(False)
-            shuffle_var.set(False)
-            effect_var.set("Balls")
+            subprocess.Popen(["xdg-open", path])
+    except Exception as e:
+        print(f"Could not open folder: {e}")
+
+
+def apply_fusion_dark_theme(app: QtWidgets.QApplication):
+    """A small 'nice-looking' dark theme based on Fusion."""
+    app.setStyle("Fusion")
+    palette = QtGui.QPalette()
+    palette.setColor(QtGui.QPalette.ColorRole.Window, QtGui.QColor(53, 53, 53))
+    palette.setColor(QtGui.QPalette.ColorRole.WindowText, QtCore.Qt.GlobalColor.white)
+    palette.setColor(QtGui.QPalette.ColorRole.Base, QtGui.QColor(35, 35, 35))
+    palette.setColor(QtGui.QPalette.ColorRole.AlternateBase, QtGui.QColor(53, 53, 53))
+    palette.setColor(QtGui.QPalette.ColorRole.ToolTipBase, QtCore.Qt.GlobalColor.white)
+    palette.setColor(QtGui.QPalette.ColorRole.ToolTipText, QtCore.Qt.GlobalColor.white)
+    palette.setColor(QtGui.QPalette.ColorRole.Text, QtCore.Qt.GlobalColor.white)
+    palette.setColor(QtGui.QPalette.ColorRole.Button, QtGui.QColor(53, 53, 53))
+    palette.setColor(QtGui.QPalette.ColorRole.ButtonText, QtCore.Qt.GlobalColor.white)
+    palette.setColor(QtGui.QPalette.ColorRole.BrightText, QtCore.Qt.GlobalColor.red)
+    palette.setColor(QtGui.QPalette.ColorRole.Link, QtGui.QColor(42, 130, 218))
+    palette.setColor(QtGui.QPalette.ColorRole.Highlight, QtGui.QColor(42, 130, 218))
+    palette.setColor(QtGui.QPalette.ColorRole.HighlightedText, QtCore.Qt.GlobalColor.black)
+    app.setPalette(palette)
+
+
+class ConfigWindow(QtWidgets.QMainWindow):
+    def __init__(self, noclick_forced_off: bool):
+        super().__init__()
+        self.noclick_forced_off = noclick_forced_off
+        self.setWindowTitle("TimedViewer Configuration (PyQt6)")
+        self.setMinimumSize(820, 620)
+        self._building = True
+        self._applying_preset = False  # prevent preset application from switching to 'Custom'
+        self._build_ui()
+        self._building = False
+        self._sync_enables()
+        self._update_allprotocol_slider_range()
+
+    def _build_ui(self):
+        global selected_directory, selected_effect
+
+        central = QtWidgets.QWidget()
+        self.setCentralWidget(central)
+        root = QtWidgets.QVBoxLayout(central)
+        root.setContentsMargins(14, 14, 14, 14)
+        root.setSpacing(10)
+
+        # --- Directory
+        gb_dir = QtWidgets.QGroupBox("Directory")
+        dir_l = QtWidgets.QGridLayout(gb_dir)
+        dir_l.setColumnStretch(0, 1)
+        dir_l.setColumnStretch(1, 0)
+
+        self.dir_edit = QtWidgets.QLineEdit(selected_directory)
+        self.dir_edit.setReadOnly(True)
+        self.dir_edit.setToolTip("Directory that will be monitored for images.")
+        self.btn_browse = QtWidgets.QPushButton("Browse…")
+        self.btn_browse.setToolTip("Select the directory to watch.")
+        self.btn_open = QtWidgets.QPushButton("Open Folder")
+        self.btn_open.setToolTip("Open the selected directory in your file manager.")
+        self.btn_browse.clicked.connect(self._on_browse_directory)
+        self.btn_open.clicked.connect(self._on_open_directory)
+
+        dir_l.addWidget(QtWidgets.QLabel("Watch folder:"), 0, 0)
+        dir_l.addWidget(self.dir_edit, 1, 0)
+        btns = QtWidgets.QHBoxLayout()
+        btns.addWidget(self.btn_browse)
+        btns.addWidget(self.btn_open)
+        btns.addStretch(1)
+        dir_l.addLayout(btns, 1, 1)
+
+        # --- Timing
+        gb_time = QtWidgets.QGroupBox("Timing")
+        time_l = QtWidgets.QFormLayout(gb_time)
+        time_l.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        time_l.setFormAlignment(Qt.AlignmentFlag.AlignTop)
+
+        self.spin_check = QtWidgets.QDoubleSpinBox()
+        self.spin_check.setRange(0.1, 9999.0)
+        self.spin_check.setDecimals(2)
+        self.spin_check.setSingleStep(0.5)
+        self.spin_check.setSuffix(" s")
+        self.spin_check.setToolTip("How frequently the directory is checked for new images.")
+        self.spin_check.setValue(float(check_interval_var))
+
+        self.spin_trans = QtWidgets.QDoubleSpinBox()
+        self.spin_trans.setRange(0.0, 60.0)
+        self.spin_trans.setDecimals(2)
+        self.spin_trans.setSingleStep(0.1)
+        self.spin_trans.setSuffix(" s")
+        self.spin_trans.setToolTip("How long each transition lasts.")
+        self.spin_trans.setValue(float(transition_duration_var))
+
+        self.spin_check.valueChanged.connect(self._on_custom_settings)
+        self.spin_trans.valueChanged.connect(self._on_custom_settings)
+
+        time_l.addRow("Check interval:", self.spin_check)
+        time_l.addRow("Transition duration:", self.spin_trans)
+
+        # --- Presets
+        gb_preset = QtWidgets.QGroupBox("Presets")
+        preset_l = QtWidgets.QVBoxLayout(gb_preset)
+        self.preset_group = QtWidgets.QButtonGroup(self)
+        self.rb_default = QtWidgets.QRadioButton("Default values")
+        self.rb_slideshow = QtWidgets.QRadioButton("Slideshow")
+        self.rb_sd_fum = QtWidgets.QRadioButton("SD-FUM animation")
+        self.rb_fast = QtWidgets.QRadioButton("Fast slideshow")
+        self.rb_domino = QtWidgets.QRadioButton("Domino show")
+        self.rb_circle = QtWidgets.QRadioButton("Circle show")
+        self.rb_dice = QtWidgets.QRadioButton("Dice show")
+        self.rb_balls = QtWidgets.QRadioButton("Balls show")
+        self.rb_custom = QtWidgets.QRadioButton("Custom")
+
+        for rb in [self.rb_default, self.rb_slideshow, self.rb_sd_fum, self.rb_fast,
+                   self.rb_domino, self.rb_circle, self.rb_dice, self.rb_balls, self.rb_custom]:
+            preset_l.addWidget(rb)
+            self.preset_group.addButton(rb)
+
+        # default selection: match current values
+        if float(check_interval_var) == CHECK_INTERVAL and float(transition_duration_var) == TRANSITION_DURATION:
+            self.rb_default.setChecked(True)
+        else:
+            self.rb_custom.setChecked(True)
+
+        self.rb_default.toggled.connect(lambda v: v and self._apply_preset("default"))
+        self.rb_slideshow.toggled.connect(lambda v: v and self._apply_preset("slideshow"))
+        self.rb_sd_fum.toggled.connect(lambda v: v and self._apply_preset("sd_fum"))
+        self.rb_fast.toggled.connect(lambda v: v and self._apply_preset("fast"))
+        self.rb_domino.toggled.connect(lambda v: v and self._apply_preset("domino_show"))
+        self.rb_circle.toggled.connect(lambda v: v and self._apply_preset("circle_show"))
+        self.rb_dice.toggled.connect(lambda v: v and self._apply_preset("dice_show"))
+        self.rb_balls.toggled.connect(lambda v: v and self._apply_preset("balls_show"))
+
+        # --- Viewer options
+        gb_opts = QtWidgets.QGroupBox("Options")
+        opts_l = QtWidgets.QGridLayout(gb_opts)
+        opts_l.setColumnStretch(0, 1)
+        opts_l.setColumnStretch(1, 1)
+
+        # Effect dropdown
+        self.cmb_effect = QtWidgets.QComboBox()
+        self.cmb_effect.setToolTip("Select the visual transition effect between images.")
+        effect_options = [
+            "Fade", "Dissolve", "Paint", "Roll", "Zoom", "Flip", "Cube", "CubeTR", "CubeBL", "CubeBR",
+            "Spin", "Fractal", "Pixelate", "Diagonal", "Circle", "Domino", "Dice", "Balls", "Pie", "Salmi",
+            "Puzzle", "Wipe", "Random",
+        ]
+        self.cmb_effect.addItems(effect_options)
+        if selected_effect in effect_options:
+            self.cmb_effect.setCurrentText(selected_effect)
+        else:
+            self.cmb_effect.setCurrentText("Fade")
+
+        # Checkboxes
+        self.cb_ignore_protocol = QtWidgets.QCheckBox("Ignore protocol (show all images)")
+        self.cb_ignore_protocol.setToolTip("If checked, previously displayed images are not skipped.")
+        self.cb_ignore_protocol.setChecked(bool(ignore_protocol))
+
+        self.cb_loop = QtWidgets.QCheckBox("Loop images")
+        self.cb_loop.setToolTip("Loop all images endlessly (only if ignoring protocol).")
+        self.cb_loop.setChecked(bool(loop_mode))
+
+        self.cb_yoyo = QtWidgets.QCheckBox("Yo-Yo images")
+        self.cb_yoyo.setToolTip("Display images forward then backward repeatedly (only if ignoring protocol).")
+        self.cb_yoyo.setChecked(bool(yoyo_mode))
+
+        self.cb_ignore_transition = QtWidgets.QCheckBox("Ignore transition effect (instant)")
+        self.cb_ignore_transition.setToolTip("Only active in loop/yo-yo mode. Switch images instantly.")
+        self.cb_ignore_transition.setChecked(bool(ignore_transition_effect))
+
+        self.cb_allprotocol = QtWidgets.QCheckBox("Use allprotocol (mark existing images as displayed)")
+        self.cb_allprotocol.setToolTip("If checked, mark current images as displayed right away (without showing them).")
+        self.cb_allprotocol.setChecked(bool(initialize_allprotocol))
+
+        # Allprotocol skip-newest slider (replaces old -10/-75 presets)
+        self.lbl_skip_title = QtWidgets.QLabel("Allprotocol skip newest:")
+        self.lbl_skip_title.setToolTip(
+            "How many of the newest images should NOT be added to the protocol file when using allprotocol."
+        )
+        self.lbl_skip = QtWidgets.QLabel("0 / 0")
+        self.lbl_skip.setMinimumWidth(90)
+        self.lbl_skip.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter)
+
+        self.slider_skip = QtWidgets.QSlider(Qt.Orientation.Horizontal)
+        self.slider_skip.setToolTip(
+            "How many of the newest images should NOT be added to the protocol file when using allprotocol."
+        )
+        self.slider_skip.setMinimum(0)
+        self.slider_skip.setMaximum(1)  # real effective max is updated dynamically
+        self.slider_skip.setSingleStep(1)
+        self.slider_skip.setPageStep(5)
+        self.slider_skip.setTickPosition(QtWidgets.QSlider.TickPosition.TicksBelow)
+        self.slider_skip.setTickInterval(1)
+        self.slider_skip.setValue(int(initialize_allprotocol_skip_newest))
+        self.slider_skip.valueChanged.connect(self._on_skip_changed)
+
+        self.skip_container = QtWidgets.QWidget()
+        skip_box = QtWidgets.QHBoxLayout(self.skip_container)
+        skip_box.setContentsMargins(6, 0, 6, 0)
+        skip_box.setSpacing(10)
+        skip_box.addWidget(self.lbl_skip_title)
+        skip_box.addWidget(self.slider_skip, 1)
+        skip_box.addWidget(self.lbl_skip)
+
+
+        self.cb_close_left = QtWidgets.QCheckBox("Close viewer with left click")
+        self.cb_close_left.setToolTip("If enabled, you can close the viewer by left-clicking in fullscreen.")
+        self.cb_close_left.setChecked(bool(close_viewer_on_left_click) and not self.noclick_forced_off)
+        if self.noclick_forced_off:
+            self.cb_close_left.setChecked(False)
+            self.cb_close_left.setEnabled(False)
+
+        self.cb_starfield = QtWidgets.QCheckBox("Starfield background (while waiting)")
+        self.cb_starfield.setChecked(bool(show_starfield))
+
+        self.cb_shuffle = QtWidgets.QCheckBox("Shuffle images (looping only)")
+        self.cb_shuffle.setToolTip("Randomise the order of images when looping/yo-yoing.")
+        self.cb_shuffle.setChecked(bool(shuffle_mode))
+
+        self.cb_stats = QtWidgets.QCheckBox("Show stats overlay (bottom-right)")
+        self.cb_stats.setToolTip("Shows remaining/found/shown counters while the slideshow runs.")
+        self.cb_stats.setChecked(bool(show_stats_overlay))
+
+        self.lbl_option_warnings = QtWidgets.QLabel("")
+        self.lbl_option_warnings.setWordWrap(True)
+        self.lbl_option_warnings.setStyleSheet("color: #ff5555;")
+        self.lbl_option_warnings.setVisible(False)
+
+        self.btn_delete_protocol = QtWidgets.QPushButton("Delete protocol file")
+        self.btn_delete_protocol.setToolTip("Delete displayed_images.csv after confirmation.")
+        self.btn_delete_protocol.clicked.connect(self._on_delete_protocol)
+
+        # layout (2 columns)
+        row = 0
+        opts_l.addWidget(QtWidgets.QLabel("Transition effect:"), row, 0)
+        opts_l.addWidget(self.cmb_effect, row, 1)
+        row += 1
+
+        opts_l.addWidget(self.cb_ignore_protocol, row, 0, 1, 2); row += 1
+        opts_l.addWidget(self.cb_loop, row, 0)
+        opts_l.addWidget(self.cb_yoyo, row, 1); row += 1
+        opts_l.addWidget(self.cb_ignore_transition, row, 0, 1, 2); row += 1
+
+        opts_l.addWidget(self.cb_allprotocol, row, 0, 1, 2); row += 1
+        opts_l.addWidget(self.skip_container, row, 0, 1, 2); row += 1
+
+        opts_l.addWidget(self.cb_close_left, row, 0)
+        opts_l.addWidget(self.cb_starfield, row, 1); row += 1
+        opts_l.addWidget(self.cb_shuffle, row, 0)
+        opts_l.addWidget(self.cb_stats, row, 1); row += 1
+
+        opts_l.addWidget(self.lbl_option_warnings, row, 0, 1, 2); row += 1
+        opts_l.addWidget(self.btn_delete_protocol, row, 0, 1, 2); row += 1
+
+        # Signals for enable/disable logic
+        self.cb_ignore_protocol.toggled.connect(self._sync_enables)
+        self.cb_loop.toggled.connect(self._sync_enables)
+        self.cb_yoyo.toggled.connect(self._on_yoyo_toggled)
+        self.cb_allprotocol.toggled.connect(self._sync_enables)
+        self.cb_shuffle.toggled.connect(self._sync_enables)
+        self.slider_skip.valueChanged.connect(self._sync_enables)
+
+        # Periodically refresh image count so the allprotocol slider range stays current.
+        self._last_image_count = 0
+        self._base_tooltips = {}
+        self._dir_scan_timer = QtCore.QTimer(self)
+        self._dir_scan_timer.setInterval(1500)
+        self._dir_scan_timer.timeout.connect(self._update_allprotocol_slider_range)
+        self._dir_scan_timer.start()
+
+        # --- Compose main layout (grid)
+        top = QtWidgets.QGridLayout()
+        top.setColumnStretch(0, 2)
+        top.setColumnStretch(1, 1)
+        top.addWidget(gb_dir, 0, 0, 1, 2)
+        top.addWidget(gb_time, 1, 0)
+        top.addWidget(gb_preset, 1, 1)
+        top.addWidget(gb_opts, 2, 0, 1, 2)
+
+        root.addLayout(top)
+
+        # Bottom buttons
+        bottom = QtWidgets.QHBoxLayout()
+        bottom.addStretch(1)
+        self.btn_start = QtWidgets.QPushButton("Start")
+        self.btn_start.setDefault(True)
+        self.btn_start.setToolTip("Start the fullscreen viewer with these settings.")
+        self.btn_start.clicked.connect(self._on_start)
+        self.btn_quit = QtWidgets.QPushButton("Quit")
+        self.btn_quit.clicked.connect(self.close)
+        bottom.addWidget(self.btn_start)
+        bottom.addWidget(self.btn_quit)
+
+        root.addLayout(bottom)
+
+    def _on_custom_settings(self, *_args):
+        if self._building or self._applying_preset:
+            return
+        self.rb_custom.setChecked(True)
+
+    def _apply_preset(self, preset: str):
+        if self._building:
+            return
+
+        self._applying_preset = True
+        previous_effect = self.cmb_effect.currentText()
+
+        if preset == "default":
+            self.spin_check.setValue(CHECK_INTERVAL)
+            self.spin_trans.setValue(TRANSITION_DURATION)
+            self.cb_ignore_protocol.setChecked(False)
+            self.cb_loop.setChecked(False)
+            self.cb_yoyo.setChecked(False)
+            self.cb_allprotocol.setChecked(False)
+            if not self.noclick_forced_off:
+                self.cb_close_left.setChecked(True)
+            self.cb_starfield.setChecked(True)
+            self.cb_ignore_transition.setChecked(False)
+            self.cb_shuffle.setChecked(False)
+            self.cmb_effect.setCurrentText(previous_effect)
+
+        elif preset == "slideshow":
+            self.spin_check.setValue(4.0)
+            self.spin_trans.setValue(1.0)
+            self.cb_ignore_protocol.setChecked(False)
+            self.cb_loop.setChecked(False)
+            self.cb_yoyo.setChecked(False)
+            self.cb_allprotocol.setChecked(False)
+            if not self.noclick_forced_off:
+                self.cb_close_left.setChecked(True)
+            self.cb_starfield.setChecked(True)
+            self.cb_ignore_transition.setChecked(False)
+            self.cb_shuffle.setChecked(False)
+            self.cmb_effect.setCurrentText(previous_effect)
+
+        elif preset == "sd_fum":
+            self.spin_check.setValue(3.0)
+            self.spin_trans.setValue(0.04)
+            self.cb_ignore_protocol.setChecked(True)
+            self.cb_loop.setChecked(True)
+            self.cb_yoyo.setChecked(False)
+            self.cb_allprotocol.setChecked(False)
+            if not self.noclick_forced_off:
+                self.cb_close_left.setChecked(True)
+            self.cb_starfield.setChecked(False)
+            self.cb_ignore_transition.setChecked(False)
+            self.cb_shuffle.setChecked(False)
+            self.cmb_effect.setCurrentText(previous_effect)
+
+        elif preset == "fast":
+            self.spin_check.setValue(2.0)
+            self.spin_trans.setValue(0.5)
+            self.cb_ignore_protocol.setChecked(False)
+            self.cb_loop.setChecked(False)
+            self.cb_yoyo.setChecked(False)
+            self.cb_allprotocol.setChecked(False)
+            if not self.noclick_forced_off:
+                self.cb_close_left.setChecked(True)
+            self.cb_starfield.setChecked(True)
+            self.cb_ignore_transition.setChecked(False)
+            self.cb_shuffle.setChecked(False)
+            self.cmb_effect.setCurrentText(previous_effect)
+
+        elif preset == "domino_show":
+            self.spin_check.setValue(3.0)
+            self.spin_trans.setValue(0.6)
+            self.cb_ignore_protocol.setChecked(True)
+            self.cb_loop.setChecked(True)
+            self.cb_yoyo.setChecked(False)
+            self.cb_allprotocol.setChecked(False)
+            if not self.noclick_forced_off:
+                self.cb_close_left.setChecked(True)
+            self.cb_starfield.setChecked(False)
+            self.cb_ignore_transition.setChecked(False)
+            self.cb_shuffle.setChecked(False)
+            self.cmb_effect.setCurrentText("Domino")
+
+        elif preset == "circle_show":
+            self.spin_check.setValue(3.0)
+            self.spin_trans.setValue(1.0)
+            self.cb_ignore_protocol.setChecked(True)
+            self.cb_loop.setChecked(True)
+            self.cb_yoyo.setChecked(False)
+            self.cb_allprotocol.setChecked(False)
+            if not self.noclick_forced_off:
+                self.cb_close_left.setChecked(True)
+            self.cb_starfield.setChecked(False)
+            self.cb_ignore_transition.setChecked(False)
+            self.cb_shuffle.setChecked(False)
+            self.cmb_effect.setCurrentText("Circle")
+
+        elif preset == "dice_show":
+            self.spin_check.setValue(3.0)
+            self.spin_trans.setValue(0.8)
+            self.cb_ignore_protocol.setChecked(True)
+            self.cb_loop.setChecked(True)
+            self.cb_yoyo.setChecked(False)
+            self.cb_allprotocol.setChecked(False)
+            if not self.noclick_forced_off:
+                self.cb_close_left.setChecked(True)
+            self.cb_starfield.setChecked(False)
+            self.cb_ignore_transition.setChecked(False)
+            self.cb_shuffle.setChecked(False)
+            self.cmb_effect.setCurrentText("Dice")
+
+        elif preset == "balls_show":
+            self.spin_check.setValue(3.0)
+            self.spin_trans.setValue(1.0)
+            self.cb_ignore_protocol.setChecked(True)
+            self.cb_loop.setChecked(True)
+            self.cb_yoyo.setChecked(False)
+            self.cb_allprotocol.setChecked(False)
+            if not self.noclick_forced_off:
+                self.cb_close_left.setChecked(True)
+            self.cb_starfield.setChecked(False)
+            self.cb_ignore_transition.setChecked(False)
+            self.cb_shuffle.setChecked(False)
+            self.cmb_effect.setCurrentText("Balls")
+
+        self._sync_enables()
+        self._update_allprotocol_slider_range()
+        self._applying_preset = False
+
+
+    def _on_yoyo_toggled(self, checked: bool):
+        # No forced exclusivity / disabling: just refresh warnings & derived UI.
+        self._sync_enables()
+
+    def _set_warn(self, widget: QtWidgets.QWidget, warn: bool, reason: str = ""):
+        # Colorize a widget red if the current option combination makes it ineffective.
+        # The widget stays clickable; we only provide visual feedback + tooltip explanation.
+        if not hasattr(self, "_base_tooltips"):
+            self._base_tooltips = {}
+        base = self._base_tooltips.get(widget)
+        if base is None:
+            base = widget.toolTip()
+            self._base_tooltips[widget] = base
+
+        if warn:
+            widget.setStyleSheet("color: #ff5555;")
+            if reason:
+                widget.setToolTip((base + "\n\n⚠ " + reason).strip())
+        else:
+            widget.setStyleSheet("")
+            widget.setToolTip(base)
+
+    def _sync_enables(self):
+        ignore_proto = self.cb_ignore_protocol.isChecked()
+        loop = self.cb_loop.isChecked()
+        yoyo = self.cb_yoyo.isChecked()
+        allproto = self.cb_allprotocol.isChecked()
+        shuffle = self.cb_shuffle.isChecked()
+
+        warnings: list[str] = []
+
+        # Loop/YoYo only make sense when protocol is ignored
+        loop_ignored = loop and (not ignore_proto)
+        yoyo_ignored = yoyo and (not ignore_proto)
+        if loop_ignored:
+            warnings.append("Loop is ignored unless 'Ignore protocol' is enabled.")
+        if yoyo_ignored:
+            warnings.append("Yo-Yo is ignored unless 'Ignore protocol' is enabled.")
+
+        # Shuffle only in loop/yo-yo with protocol ignored
+        shuffle_ignored = shuffle and (not (ignore_proto and (loop or yoyo)))
+        if shuffle_ignored:
+            warnings.append("Shuffle is ignored unless in Loop or Yo-Yo mode with 'Ignore protocol' enabled.")
+
+        # allprotocol only makes sense when protocol is active (i.e. NOT ignored)
+        allproto_ignored = allproto and ignore_proto
+        if allproto_ignored:
+            warnings.append("Allprotocol is ignored while 'Ignore protocol' is enabled.")
+
+        # Skip slider only makes sense when allprotocol is active and protocol is active.
+        skip_active = allproto and (not ignore_proto)
+        skip_val = int(self.slider_skip.value())
+        skip_ignored = (not skip_active) and (skip_val > 0)
+        if skip_ignored:
+            warnings.append("Skip-newest value is ignored unless Allprotocol is enabled and protocol is active.")
+
+        # Loop + Yo-Yo simultaneously: loop becomes redundant (viewer will prefer yo-yo)
+        loop_redundant = loop and yoyo
+        if loop_redundant:
+            warnings.append("Loop is redundant when Yo-Yo is enabled (Yo-Yo takes precedence).")
+
+        # Apply visual warnings (only colorize when the user enabled an incompatible option)
+        self._set_warn(
+            self.cb_loop,
+            loop_ignored or loop_redundant,
+            "Requires 'Ignore protocol'. Redundant when Yo-Yo is enabled.",
+        )
+        self._set_warn(self.cb_yoyo, yoyo_ignored, "Requires 'Ignore protocol'.")
+        self._set_warn(self.cb_shuffle, shuffle_ignored, "Requires Loop/Yo-Yo with 'Ignore protocol'.")
+        self._set_warn(self.cb_allprotocol, allproto_ignored, "Requires protocol active (do NOT ignore protocol).")
+
+        # Skip slider highlight (only when user dialed a value that would be ignored)
+        if skip_ignored:
+            self.skip_container.setStyleSheet(
+                "border: 1px solid #ff5555; border-radius: 4px; padding: 2px;"
+            )
+            self.lbl_skip_title.setStyleSheet("color: #ff5555;")
+            self.lbl_skip.setStyleSheet("color: #ff5555;")
+        else:
+            self.skip_container.setStyleSheet("")
+            self.lbl_skip_title.setStyleSheet("")
+            self.lbl_skip.setStyleSheet("")
+
+        if warnings:
+            self.lbl_option_warnings.setText(" • " + "\n • ".join(warnings))
+            self.lbl_option_warnings.setVisible(True)
+        else:
+            self.lbl_option_warnings.setVisible(False)
+
+        self._update_allprotocol_slider_range()
+        self._on_skip_changed(self.slider_skip.value())
+
+    def _update_allprotocol_slider_range(self):
+        # Slider max should track how many images are currently available (recursive).
+        # Keep the slider visible even if there are 0 images (Qt hides the handle when max==0).
+        directory = self.dir_edit.text().strip() or selected_directory
         try:
-            globals()['check_interval_var'] = float(interval_entry.get())
+            total = count_images_in_directory(directory)
         except Exception:
-            pass
+            total = 0
+
+        self._last_image_count = int(total)
+        effective_max = max(0, self._last_image_count)
+        visual_max = max(1, effective_max)  # keep slider visible
+
+        from PyQt6 import QtCore
+        with QtCore.QSignalBlocker(self.slider_skip):
+            self.slider_skip.setMaximum(visual_max)
+            if self.slider_skip.value() > effective_max:
+                self.slider_skip.setValue(effective_max)
+
+        # ticks: keep it readable
+        if effective_max >= 10:
+            self.slider_skip.setTickInterval(max(1, effective_max // 10))
+        else:
+            self.slider_skip.setTickInterval(1)
+
+        self._on_skip_changed(self.slider_skip.value())
+
+    def _on_skip_changed(self, value: int):
+        total = getattr(self, "_last_image_count", 0)
+        effective_value = min(int(value), int(total))
+        if effective_value != int(value):
+            from PyQt6 import QtCore
+            with QtCore.QSignalBlocker(self.slider_skip):
+                self.slider_skip.setValue(effective_value)
+
+        active = self.cb_allprotocol.isChecked() and (not self.cb_ignore_protocol.isChecked())
+        suffix = "" if active else " (inactive)"
+        self.lbl_skip.setText(f"{effective_value} / {total}{suffix}")
+
+    def _on_browse_directory(self):
+        global selected_directory
+        start_dir = selected_directory if os.path.isdir(selected_directory) else os.getcwd()
+        d = QtWidgets.QFileDialog.getExistingDirectory(self, "Select directory", start_dir)
+        if d:
+            selected_directory = d
+            self.dir_edit.setText(selected_directory)
+            try:
+                with open(VIEWPATH_FILE, 'w', encoding='utf-8') as f:
+                    f.write(selected_directory)
+            except Exception:
+                pass
+            self._update_allprotocol_slider_range()
+            self._sync_enables()
+
+    def _on_open_directory(self):
+        directory = self.dir_edit.text().strip() or selected_directory
+        open_in_file_manager(directory)
+
+    def _on_delete_protocol(self):
+        directory = self.dir_edit.text().strip() or selected_directory
+        protocol_path = os.path.join(directory, PROTOCOL_FILE)
+        if not os.path.exists(protocol_path):
+            QtWidgets.QMessageBox.information(self, "Delete Protocol", "No protocol file found to delete.")
+            return
+        res = QtWidgets.QMessageBox.question(
+            self,
+            "Delete Protocol",
+            "Are you sure you want to delete the protocol file (displayed_images.csv)?",
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+        )
+        if res != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
         try:
-            globals()['transition_duration_var'] = float(transition_entry.get())
-        except Exception:
-            pass
-    preset_default = tk.Radiobutton(preset_frame, text="default values", variable=preset_var, value="default", command=apply_preset)
-    preset_slideshow = tk.Radiobutton(preset_frame, text="Slideshow", variable=preset_var, value="slideshow", command=apply_preset)
-    preset_sd_fum = tk.Radiobutton(preset_frame, text="SD-FUM animation", variable=preset_var, value="sd_fum", command=apply_preset)
-    preset_fast = tk.Radiobutton(preset_frame, text="Fast slideshow", variable=preset_var, value="fast", command=apply_preset)
-    preset_domino = tk.Radiobutton(preset_frame, text="Domino show", variable=preset_var, value="domino_show", command=apply_preset)
-    preset_circle = tk.Radiobutton(preset_frame, text="Circle show", variable=preset_var, value="circle_show", command=apply_preset)
-    preset_dice = tk.Radiobutton(preset_frame, text="Dice show", variable=preset_var, value="dice_show", command=apply_preset)
-    preset_balls = tk.Radiobutton(preset_frame, text="Balls show", variable=preset_var, value="balls_show", command=apply_preset)
-    preset_default.pack(side=tk.TOP, anchor="w")
-    preset_slideshow.pack(side=tk.TOP, anchor="w")
-    preset_sd_fum.pack(side=tk.TOP, anchor="w")
-    preset_fast.pack(side=tk.TOP, anchor="w")
-    preset_domino.pack(side=tk.TOP, anchor="w")
-    preset_circle.pack(side=tk.TOP, anchor="w")
-    preset_dice.pack(side=tk.TOP, anchor="w")
-    preset_balls.pack(side=tk.TOP, anchor="w")
-    effect_label = tk.Label(right_frame, text="Transition Effect:")
-    effect_label.grid(row=0, column=0, sticky="w", pady=(0, 5))
-    effect_var = tk.StringVar(value=selected_effect)
-    effect_options = [
-        "Fade",
-        "Dissolve",
-        "Paint",
-        "Roll",
-        "Zoom",
-        "Flip",
-        "Cube",
-        "CubeTR",
-        "CubeBL",
-        "CubeBR",
-        "Spin",
-        "Fractal",
-        "Pixelate",
-        "Diagonal",
-        "Circle",
-        "Domino",
-        "Dice",
-        "Balls",
-        "Pie",
-        "Salmi",
-        "Puzzle",
-        "Wipe",
-        "Random",
-    ]
-    if selected_effect not in effect_options:
-        selected_effect = "Fade"
-    effect_dropdown = ttk.Combobox(right_frame, textvariable=effect_var, values=effect_options, state='readonly', width=15)
-    effect_dropdown.set(selected_effect)
-    effect_dropdown.grid(row=1, column=0, sticky="w", pady=(0, 5))
-    noprotocol_var = tk.BooleanVar(value=ignore_protocol)
-    noprotocol_check = tk.Checkbutton(right_frame, text="Ignore protocol", variable=noprotocol_var)
-    noprotocol_check.grid(row=2, column=0, sticky="w", pady=(0, 5))
-    loop_var = tk.BooleanVar(value=loop_mode)
-    loop_check = tk.Checkbutton(right_frame, text="Loop images", variable=loop_var)
-    loop_check.grid(row=3, column=0, sticky="w", pady=(0, 5))
-    yoyo_var = tk.BooleanVar(value=yoyo_mode)
-    yoyo_check = tk.Checkbutton(right_frame, text="Yo–Yo images", variable=yoyo_var)
-    yoyo_check.grid(row=4, column=0, sticky="w", pady=(0, 5))
-    ignore_transition_effect_var = tk.BooleanVar(value=False)
-    ignore_transition_effect_check = tk.Checkbutton(right_frame, text="Ignore transition effect", variable=ignore_transition_effect_var)
-    ignore_transition_effect_check.grid(row=5, column=0, sticky="w", pady=(0, 5))
-    allprotocol_var = tk.BooleanVar(value=initialize_all)
-    allprotocol_check = tk.Checkbutton(right_frame, text="Use allprotocol", variable=allprotocol_var)
-    allprotocol_check.grid(row=6, column=0, sticky="w", pady=(0, 5))
-    allprotocolminus10_var = tk.BooleanVar(value=initialize_all_minus10)
-    allprotocolminus10_check = tk.Checkbutton(right_frame, text="Use allprotocol (-10)", variable=allprotocolminus10_var)
-    allprotocolminus10_check.grid(row=7, column=0, sticky="w", pady=(0, 5))
-    allprotocolminus75_var = tk.BooleanVar(value=initialize_all_minus75)
-    allprotocolminus75_check = tk.Checkbutton(right_frame, text="Use allprotocol (-75)", variable=allprotocolminus75_var)
-    allprotocolminus75_check.grid(row=8, column=0, sticky="w", pady=(0, 5))
-    closeleft_var = tk.BooleanVar(value=close_viewer_on_left_click and not noclick_forced_off)
-    closeleft_check = tk.Checkbutton(right_frame, text="Close viewer with left click", variable=closeleft_var)
-    closeleft_check.grid(row=9, column=0, sticky="w", pady=(0, 5))
-    if noclick_forced_off:
-        closeleft_check.config(state=tk.DISABLED)
-    starfield_var = tk.BooleanVar(value=show_starfield)
-    starfield_check = tk.Checkbutton(right_frame, text="Starfield background", variable=starfield_var)
-    starfield_check.grid(row=10, column=0, sticky="w", pady=(0, 5))
-    shuffle_var = tk.BooleanVar(value=shuffle_mode)
-    shuffle_check = tk.Checkbutton(right_frame, text="Shuffle images", variable=shuffle_var)
-    shuffle_check.grid(row=11, column=0, sticky="w", pady=(0, 5))
-    delete_button = tk.Button(right_frame, text="Delete Protocol", command=lambda: delete_protocol(os.path.join(selected_directory, PROTOCOL_FILE)))
-    delete_button.grid(row=12, column=0, sticky="w", pady=(0, 5))
-    def handle_allprotocol_toggle(*_args):
-        if allprotocol_var.get():
-            allprotocolminus10_var.set(False)
-            allprotocolminus75_var.set(False)
-            allprotocolminus10_check.config(state="disabled")
-            allprotocolminus75_check.config(state="disabled")
-        else:
-            allprotocolminus10_check.config(state="normal")
-            allprotocolminus75_check.config(state="normal")
-    def handle_allprotocolminus10_toggle(*_args):
-        if allprotocolminus10_var.get():
-            allprotocol_var.set(False)
-            allprotocol_check.config(state="disabled")
-            allprotocolminus75_var.set(False)
-            allprotocolminus75_check.config(state="disabled")
-        else:
-            allprotocol_check.config(state="normal")
-            allprotocolminus75_check.config(state="normal")
-    def handle_allprotocolminus75_toggle(*_args):
-        if allprotocolminus75_var.get():
-            allprotocol_var.set(False)
-            allprotocol_check.config(state="disabled")
-            allprotocolminus10_var.set(False)
-            allprotocolminus10_check.config(state="disabled")
-        else:
-            allprotocol_check.config(state="normal")
-            allprotocolminus10_check.config(state="normal")
-    allprotocol_var.trace_add('write', handle_allprotocol_toggle)
-    allprotocolminus10_var.trace_add('write', handle_allprotocolminus10_toggle)
-    allprotocolminus75_var.trace_add('write', handle_allprotocolminus75_toggle)
-    handle_allprotocol_toggle()
-    handle_allprotocolminus10_toggle()
-    handle_allprotocolminus75_toggle()
-    def handle_noprotocol_toggle(*_args):
-        if noprotocol_var.get():
-            loop_check.config(state="normal")
-            yoyo_check.config(state="normal")
-        else:
-            loop_var.set(False)
-            loop_check.config(state="disabled")
-            yoyo_var.set(False)
-            yoyo_check.config(state="disabled")
-            ignore_transition_effect_var.set(False)
-            ignore_transition_effect_check.config(state="disabled")
-    noprotocol_var.trace_add('write', handle_noprotocol_toggle)
-    handle_noprotocol_toggle()
-    def handle_loop_toggle(*_args):
-        if loop_var.get():
-            ignore_transition_effect_check.config(state="normal")
-        else:
-            ignore_transition_effect_var.set(False)
-            ignore_transition_effect_check.config(state="disabled")
-    loop_var.trace_add('write', handle_loop_toggle)
-    handle_loop_toggle()
-    def on_start():
+            os.remove(protocol_path)
+            QtWidgets.QMessageBox.information(self, "Delete Protocol", "Protocol file deleted.")
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Delete Protocol", f"Could not delete protocol file:\n{e}")
+
+    def _on_start(self):
         global selected_directory, ignore_protocol, loop_mode, yoyo_mode
-        global initialize_all, initialize_all_minus10, initialize_all_minus75
+        global initialize_allprotocol, initialize_allprotocol_skip_newest
         global close_viewer_on_left_click, selected_effect
         global check_interval_var, transition_duration_var, show_starfield
-        global ignore_transition_effect, shuffle_mode
-        try:
-            ci = float(interval_entry.get())
-        except Exception:
-            ci = CHECK_INTERVAL
-            interval_entry.delete(0, tk.END)
-            interval_entry.insert(0, str(CHECK_INTERVAL))
-        try:
-            td = float(transition_entry.get())
-        except Exception:
-            td = TRANSITION_DURATION
-            transition_entry.delete(0, tk.END)
-            transition_entry.insert(0, str(TRANSITION_DURATION))
-        check_interval_var = ci
-        transition_duration_var = td
-        ignore_protocol = noprotocol_var.get()
-        loop_mode = loop_var.get()
-        yoyo_mode = yoyo_var.get()
-        if noclick_forced_off:
+        global ignore_transition_effect, shuffle_mode, show_stats_overlay
+
+        # Directory: prefer what's in the edit box
+        directory = self.dir_edit.text().strip()
+        if directory:
+            selected_directory = directory
+
+        check_interval_var = float(self.spin_check.value())
+        transition_duration_var = float(self.spin_trans.value())
+
+        ignore_protocol = self.cb_ignore_protocol.isChecked()
+        loop_mode = self.cb_loop.isChecked()
+        yoyo_mode = self.cb_yoyo.isChecked()
+
+        if self.noclick_forced_off:
             close_viewer_on_left_click = False
         else:
-            close_viewer_on_left_click = closeleft_var.get()
-        initialize_all = allprotocol_var.get()
-        initialize_all_minus10 = allprotocolminus10_var.get()
-        initialize_all_minus75 = allprotocolminus75_var.get()
-        selected_effect = effect_var.get()
-        show_starfield = starfield_var.get()
-        ignore_transition_effect = ignore_transition_effect_var.get()
-        shuffle_mode = shuffle_var.get()
-        with open(VIEWPATH_FILE, 'w', encoding='utf-8') as f:
-            f.write(selected_directory)
-        start_viewer_from_gui(root)
-    start_button = tk.Button(bottom_frame, text="Start", command=on_start, font=("Arial", 14, "bold"))
-    start_button.pack()
-    create_tooltip(dir_label, "Specify the directory where images will be monitored.")
-    create_tooltip(dir_button, "Open a dialog to select the directory to watch.")
-    create_tooltip(selected_dir_label, "The currently selected directory.")
-    create_tooltip(interval_label, "How frequently the directory is checked for new images (in seconds).")
-    create_tooltip(interval_entry, "Enter a numeric value for the check interval.")
-    create_tooltip(transition_label, "How long each transition lasts (in seconds).")
-    create_tooltip(transition_entry, "Enter a numeric value for the transition duration.")
-    create_tooltip(preset_default, "Reset to default values.")
-    create_tooltip(preset_sd_fum, "Monitor progress of animation creation using https://github.com/zeittresor/sd-forge-fum.")
-    create_tooltip(preset_slideshow, "Switch to slideshow mode (4 s interval, 1 s transition).")
-    create_tooltip(preset_fast, "Fast slideshow: 2 s interval, 0.5 s transition.")
-    create_tooltip(preset_domino, "Domino show: domino effect, loop images.")
-    create_tooltip(preset_circle, "Circle show: circular reveal effect, loop images.")
-    create_tooltip(preset_dice, "Dice show: dice reveal effect, loop images.")
-    create_tooltip(preset_balls, "Balls show: multiple expanding circles reveal the image, loop images.")
-    create_tooltip(effect_label, "Select the visual transition effect between images.")
-    create_tooltip(effect_dropdown, "Choose from Fade, Dissolve, Paint, Roll, Zoom or Random.")
-    create_tooltip(noprotocol_check, "If checked, previously displayed images are not skipped.")
-    create_tooltip(loop_check, "Loop all images endlessly (only if ignoring protocol).")
-    create_tooltip(yoyo_check, "Display images forward then backward repeatedly (only if ignoring protocol).")
-    create_tooltip(ignore_transition_effect_check, "If enabled (and loop is on), no transition effect is used; images switch instantly.")
-    create_tooltip(allprotocol_check, "If checked, mark all current images as displayed right away.")
-    create_tooltip(allprotocolminus10_check, "Like 'allprotocol', but skip the newest 10 images.")
-    create_tooltip(allprotocolminus75_check, "Like 'allprotocol', but skip the newest 75 images.")
-    create_tooltip(closeleft_check, "If enabled, you can close the viewer by left‑clicking in fullscreen.")
-    create_tooltip(starfield_check, "If enabled, a starfield background is shown while waiting for images.")
-    create_tooltip(shuffle_check, "If enabled, randomise the order of images when looping.")
-    create_tooltip(delete_button, "Delete the protocol file (displayed_images.csv) after confirmation.")
-    create_tooltip(start_button, "Start the fullscreen viewer with these settings.")
-    create_tooltip(open_dir_button, "Open the selected directory in your file manager.")
-    root.bind("<Return>", lambda _e: on_start())
-    return root
+            close_viewer_on_left_click = self.cb_close_left.isChecked()
+
+        initialize_allprotocol = self.cb_allprotocol.isChecked()
+        initialize_allprotocol_skip_newest = int(self.slider_skip.value())
+
+        selected_effect = self.cmb_effect.currentText()
+        show_starfield = self.cb_starfield.isChecked()
+        ignore_transition_effect = self.cb_ignore_transition.isChecked()
+        shuffle_mode = self.cb_shuffle.isChecked()
+        show_stats_overlay = self.cb_stats.isChecked()
+
+        try:
+            with open(VIEWPATH_FILE, 'w', encoding='utf-8') as f:
+                f.write(selected_directory)
+        except Exception:
+            pass
+
+        self.hide()
+        try:
+            run_viewer()
+        finally:
+            self.show()
+
 
 
 def hide_console_window():
@@ -1549,13 +1867,16 @@ def hide_console_window():
 
 def main():
     global selected_directory, use_protocol, ignore_protocol, loop_mode, yoyo_mode
-    global initialize_all, initialize_all_minus10, initialize_all_minus75
+    global initialize_allprotocol, initialize_allprotocol_skip_newest
     global check_interval_var, transition_duration_var
     global close_viewer_on_left_click, show_starfield, selected_effect
-    global shuffle_mode
+    global shuffle_mode, show_stats_overlay
+
     args = parse_arguments()
     if args.version:
         display_version_info()
+
+    # Restore last used directory
     if os.path.exists(VIEWPATH_FILE):
         try:
             with open(VIEWPATH_FILE, 'r', encoding='utf-8') as f:
@@ -1563,47 +1884,64 @@ def main():
                 if line and os.path.isdir(line):
                     selected_directory = line
                 else:
-                    with open(VIEWPATH_FILE, 'w', encoding='utf-8') as fw:
-                        fw.write(os.getcwd())
                     selected_directory = os.getcwd()
         except Exception:
             selected_directory = os.getcwd()
-            with open(VIEWPATH_FILE, 'w', encoding='utf-8') as fw:
-                fw.write(selected_directory)
     else:
-        with open(VIEWPATH_FILE, 'w', encoding='utf-8') as f:
-            f.write(selected_directory)
-    noclick_forced_off = False
-    if args.noclick:
-        noclick_forced_off = True
+        try:
+            with open(VIEWPATH_FILE, 'w', encoding='utf-8') as f:
+                f.write(selected_directory)
+        except Exception:
+            pass
+
+    noclick_forced_off = bool(args.noclick)
+
+    # CLI options
     use_protocol = not args.noprotocol
     ignore_protocol = args.noprotocol
     shuffle_mode = args.shuffle
+    show_stats_overlay = args.showstats
+
+    # allprotocol handling (new generic + backward compatible flags)
+    initialize_allprotocol = False
+    initialize_allprotocol_skip_newest = 0
     if args.allprotocolminus75:
-        initialize_all_minus75 = True
-        initialize_all_minus10 = False
-        initialize_all = False
+        initialize_allprotocol = True
+        initialize_allprotocol_skip_newest = 75
     elif args.allprotocolminus10:
-        initialize_all_minus10 = True
-        initialize_all_minus75 = False
-        initialize_all = False
-    else:
-        initialize_all_minus10 = False
-        initialize_all_minus75 = False
-        initialize_all = args.allprotocol
-    if not args.showconsole and not args.nogui:
-        hide_console_window()
+        initialize_allprotocol = True
+        initialize_allprotocol_skip_newest = 10
+    elif args.allprotocolskip is not None:
+        initialize_allprotocol = True
+        initialize_allprotocol_skip_newest = max(0, int(args.allprotocolskip))
+    elif args.allprotocol:
+        initialize_allprotocol = True
+        initialize_allprotocol_skip_newest = 0
+
+    if noclick_forced_off:
+        close_viewer_on_left_click = False
+
+    # UX: keep console visible when started from an interactive terminal.
+    # Hide it only when not attached to a TTY (common when started by double-click).
+    if (platform.system() == "Windows") and (not args.showconsole) and (not args.nogui):
+        try:
+            if not sys.stdout.isatty():
+                hide_console_window()
+        except Exception:
+            pass
+
     if args.nogui:
-        if noclick_forced_off:
-            close_viewer_on_left_click = False
         run_viewer()
-    else:
-        if noclick_forced_off:
-            close_viewer_on_left_click = False
-        gui_root = build_gui(noclick_forced_off)
-        gui_root.mainloop()
+        return
+
+    app = QtWidgets.QApplication(sys.argv)
+    apply_fusion_dark_theme(app)
+    win = ConfigWindow(noclick_forced_off=noclick_forced_off)
+    win.show()
+    sys.exit(app.exec())
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
+
 
