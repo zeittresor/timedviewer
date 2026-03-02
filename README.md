@@ -17,6 +17,17 @@ images are viewed the script will wait until new images are availabe inside any 
 
 btw. to get some help there are tooltips for every visible function of the GUI. :-)
 
+
+Changelog
+
+Commit x:
+
+- Interface Switched from Tkinter to PyQT6
+- Image Counter option added
+- All protocol option replaced with a slider
+
+Commit 0fafd28 :
+
 <img width="646" height="627" alt="grafik" src="https://github.com/user-attachments/assets/5ee632dd-88cf-4710-b281-f561b06700fd" />
 
 usage: timedviewer.py [-commandlineoption]
