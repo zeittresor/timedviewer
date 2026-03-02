@@ -20,7 +20,7 @@ btw. to get some help there are tooltips for every visible function of the GUI. 
 
 Changelog
 
-Commit x (02.03.2026) :
+Commit ddda548 (02.03.2026) :
 
 - Interface Switched from Tkinter to PyQT6
 - Image Counter option added
